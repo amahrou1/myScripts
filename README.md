@@ -7,11 +7,15 @@ A fast, efficient, and scalable reconnaissance framework for bug bounty hunting,
 ### Step 1: Subdomain Enumeration (Current)
 
 - ✅ **Wildcard DNS Detection** - Automatically detects wildcard DNS configurations
-- ✅ **Concurrent Passive Enumeration** - Runs multiple tools simultaneously:
+- ✅ **Concurrent Passive Enumeration** - Runs 8 tools simultaneously:
   - subfinder
   - amass
   - assetfinder
   - findomain
+  - **Web Archive (Wayback Machine)** - Historical subdomain data
+  - **crt.sh** - Certificate Transparency logs
+  - **subshodan** - Shodan API subdomain discovery
+  - **Python subdomain-Enum.py** - Custom Python enumeration script
 - ✅ **Brute Force with massdns** - Fast DNS brute forcing (skipped if wildcard detected)
 - ✅ **Live Host Detection** - Uses httpx to verify live services
 - ✅ **Deduplication** - Automatically removes duplicates and sorts results
@@ -65,6 +69,13 @@ sudo make install
 
 - Subdomain wordlist: `/root/myLists/subdomains.txt`
 - DNS resolvers: `/root/myLists/resolvers.txt`
+
+### Configuration
+
+Edit `config/config.env` to customize:
+- Shodan API key
+- Python script path
+- Wordlist locations
 
 ## 🔧 Installation
 
@@ -189,12 +200,19 @@ The tool executes the following workflow:
 
 ## 🛠️ Configuration
 
-Edit `pkg/subdomains/subdomains.go` to customize:
+The tool is pre-configured with sensible defaults. To customize:
 
-- Wordlist paths
-- Resolver paths
+**Quick Config (Recommended):**
+Edit `config/config.env` to change:
+- Shodan API key
+- Python script path
+- Wordlist locations
+
+**Advanced Config:**
+Edit `pkg/subdomains/subdomains.go` to modify:
 - Tool timeouts
-- Additional tools
+- HTTP client settings
+- Additional enumeration sources
 
 ## 🚀 Coming Soon (Future Steps)
 
