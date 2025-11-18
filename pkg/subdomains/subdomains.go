@@ -2,10 +2,15 @@ package subdomains
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -15,11 +20,13 @@ import (
 )
 
 type Enumerator struct {
-	Domain     string
-	OutputDir  string
-	Wordlist   string
-	Resolvers  string
-	Verbose    bool
+	Domain       string
+	OutputDir    string
+	Wordlist     string
+	Resolvers    string
+	ShodanAPIKey string
+	PythonScript string
+	Verbose      bool
 }
 
 type Result struct {
@@ -32,11 +39,13 @@ type Result struct {
 // NewEnumerator creates a new subdomain enumerator
 func NewEnumerator(domain, outputDir string) *Enumerator {
 	return &Enumerator{
-		Domain:    domain,
-		OutputDir: outputDir,
-		Wordlist:  "/root/myLists/subdomains.txt",
-		Resolvers: "/root/myLists/resolvers.txt",
-		Verbose:   true,
+		Domain:       domain,
+		OutputDir:    outputDir,
+		Wordlist:     "/root/myLists/subdomains.txt",
+		Resolvers:    "/root/myLists/resolvers.txt",
+		ShodanAPIKey: "j8PrRv5fW2Ox7Vt8PBJIdNokQv5lsBD1",
+		PythonScript: "/root/tools/subdomain-enum/subdomain-Enum.py",
+		Verbose:      true,
 	}
 }
 
@@ -172,15 +181,57 @@ func (e *Enumerator) runPassiveEnumeration() ([]string, error) {
 		{"findomain", []string{"findomain", "-t", e.Domain, "--quiet"}},
 	}
 
-	var wg sync.WaitGroup
-	results := make(chan Result, len(tools))
+	// Calculate total number of sources (tools + additional sources)
+	totalSources := len(tools) + 4 // 4 additional sources: wayback, crt.sh, subshodan, python script
 
+	var wg sync.WaitGroup
+	results := make(chan Result, totalSources)
+
+	// Run command-line tools
 	for _, tool := range tools {
 		wg.Add(1)
 		go func(toolName string, cmdArgs []string) {
 			defer wg.Done()
 			e.runTool(toolName, cmdArgs, results)
 		}(tool.name, tool.cmd)
+	}
+
+	// Run Web Archive (Wayback Machine)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		e.runWaybackMachine(results)
+	}()
+
+	// Run crt.sh (Certificate Transparency)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		e.runCrtSh(results)
+	}()
+
+	// Run subshodan if API key is provided
+	if e.ShodanAPIKey != "" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			e.runSubshodan(results)
+		}()
+	} else {
+		// Send empty result if no API key
+		results <- Result{Tool: "subshodan", Error: fmt.Errorf("no API key provided")}
+	}
+
+	// Run Python subdomain-enum script if it exists
+	if _, err := os.Stat(e.PythonScript); err == nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			e.runPythonScript(results)
+		}()
+	} else {
+		// Send empty result if script doesn't exist
+		results <- Result{Tool: "python-enum", Error: fmt.Errorf("script not found")}
 	}
 
 	wg.Wait()
@@ -231,6 +282,196 @@ func (e *Enumerator) runTool(toolName string, cmdArgs []string, results chan<- R
 		}
 	}
 
+	results <- result
+}
+
+// runWaybackMachine fetches subdomains from Web Archive
+func (e *Enumerator) runWaybackMachine(results chan<- Result) {
+	start := time.Now()
+	result := Result{
+		Tool:     "wayback",
+		Duration: time.Since(start),
+	}
+
+	url := fmt.Sprintf("http://web.archive.org/cdx/search/cdx?url=*.%s/*&output=text&fl=original&collapse=urlkey", e.Domain)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		result.Error = err
+		results <- result
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		result.Error = err
+		results <- result
+		return
+	}
+
+	// Extract domains from URLs
+	subdomainMap := make(map[string]bool)
+	lines := strings.Split(string(body), "\n")
+
+	re := regexp.MustCompile(`https?://([^/]+)`)
+	for _, line := range lines {
+		matches := re.FindStringSubmatch(line)
+		if len(matches) > 1 {
+			domain := strings.TrimPrefix(matches[1], "www.")
+			if strings.HasSuffix(domain, "."+e.Domain) || domain == e.Domain {
+				subdomainMap[domain] = true
+			}
+		}
+	}
+
+	for subdomain := range subdomainMap {
+		result.Subdomains = append(result.Subdomains, subdomain)
+	}
+
+	result.Duration = time.Since(start)
+	results <- result
+}
+
+// runCrtSh fetches subdomains from Certificate Transparency logs
+func (e *Enumerator) runCrtSh(results chan<- Result) {
+	start := time.Now()
+	result := Result{
+		Tool:     "crt.sh",
+		Duration: time.Since(start),
+	}
+
+	url := fmt.Sprintf("https://crt.sh/?q=%%.%s&output=json", e.Domain)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		result.Error = err
+		results <- result
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		result.Error = err
+		results <- result
+		return
+	}
+
+	// Parse JSON response
+	var certs []struct {
+		NameValue string `json:"name_value"`
+	}
+
+	if err := json.Unmarshal(body, &certs); err != nil {
+		result.Error = err
+		results <- result
+		return
+	}
+
+	// Extract unique subdomains
+	subdomainMap := make(map[string]bool)
+	for _, cert := range certs {
+		domains := strings.Split(cert.NameValue, "\n")
+		for _, domain := range domains {
+			domain = strings.TrimSpace(domain)
+			domain = strings.Replace(domain, "*.", "", -1)
+			if domain != "" && (strings.HasSuffix(domain, "."+e.Domain) || domain == e.Domain) {
+				subdomainMap[domain] = true
+			}
+		}
+	}
+
+	for subdomain := range subdomainMap {
+		result.Subdomains = append(result.Subdomains, subdomain)
+	}
+
+	result.Duration = time.Since(start)
+	results <- result
+}
+
+// runSubshodan runs subshodan tool with Shodan API
+func (e *Enumerator) runSubshodan(results chan<- Result) {
+	start := time.Now()
+	result := Result{
+		Tool:     "subshodan",
+		Duration: time.Since(start),
+	}
+
+	cmd := exec.Command("subshodan", "-d", e.Domain, "-s", e.ShodanAPIKey)
+	output, err := cmd.Output()
+
+	if err != nil {
+		result.Error = err
+		results <- result
+		return
+	}
+
+	// Parse subdomains from output
+	scanner := bufio.NewScanner(strings.NewReader(string(output)))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" {
+			result.Subdomains = append(result.Subdomains, line)
+		}
+	}
+
+	result.Duration = time.Since(start)
+	results <- result
+}
+
+// runPythonScript runs the Python subdomain enumeration script
+func (e *Enumerator) runPythonScript(results chan<- Result) {
+	start := time.Now()
+	result := Result{
+		Tool:     "python-enum",
+		Duration: time.Since(start),
+	}
+
+	// Create temporary output file
+	tempFile := filepath.Join(e.OutputDir, "python-temp.txt")
+	defer os.Remove(tempFile)
+
+	// Prepare input for the Python script
+	// The script asks for: 1) output file name, 2) domain name
+	input := fmt.Sprintf("%s\n%s\n", tempFile, e.Domain)
+
+	cmd := exec.Command("python3", e.PythonScript)
+	cmd.Stdin = strings.NewReader(input)
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		result.Error = fmt.Errorf("python script failed: %v - %s", err, stderr.String())
+		results <- result
+		return
+	}
+
+	// Read subdomains from the temp file
+	if _, err := os.Stat(tempFile); os.IsNotExist(err) {
+		result.Error = fmt.Errorf("python script did not create output file")
+		results <- result
+		return
+	}
+
+	file, err := os.Open(tempFile)
+	if err != nil {
+		result.Error = err
+		results <- result
+		return
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" {
+			result.Subdomains = append(result.Subdomains, line)
+		}
+	}
+
+	result.Duration = time.Since(start)
 	results <- result
 }
 
