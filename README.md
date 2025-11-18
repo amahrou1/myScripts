@@ -18,9 +18,14 @@ A fast, efficient, and scalable reconnaissance framework for bug bounty hunting,
   - **Python subdomain-Enum.py** - Custom Python enumeration script
 - ✅ **Brute Force with massdns** - Fast DNS brute forcing (skipped if wildcard detected)
 - ✅ **Live Host Detection** - Uses httpx to verify live services
-- ✅ **VHost Fuzzing** - Discovers hidden subdomains via virtual host fuzzing
+- ✅ **Smart VHost Fuzzing** - Discovers hidden subdomains via virtual host fuzzing
   - Extracts IPs from discovered subdomains
-  - Queries Shodan for IPs via SSL certificates (status codes: 200, 403, 401, 404, 503, 301, 302, 307)
+  - Queries Shodan for IPs via SSL certificates
+  - **Filters out CDN/Cloud IPs** (Cloudflare, AWS, Azure, GCP, Fastly, Akamai)
+  - **Limits to top 50 most common IPs** (faster, more relevant)
+  - **Uses dedicated VHost wordlist** (120 entries, focused on common vhosts)
+  - **Live progress tracking** (shows current IP being tested)
+  - **Optional -skip-vhost flag** for faster scans
   - Uses ffuf for concurrent VHost fuzzing
   - Filters results to find truly new subdomains
 - ✅ **Deduplication** - Automatically removes duplicates and sorts results
@@ -81,6 +86,7 @@ shodan init YOUR_API_KEY
 ### Required Wordlists
 
 - Subdomain wordlist: `/root/myLists/subdomains.txt`
+- VHost wordlist: `/root/myLists/vhost-wordlist.txt` (auto-created from config/)
 - DNS resolvers: `/root/myLists/resolvers.txt`
 
 ### Configuration
@@ -89,6 +95,7 @@ Edit `config/config.env` to customize:
 - Shodan API key
 - Python script path
 - Wordlist locations
+- VHost fuzzing settings (max IPs to test)
 
 ## 🔧 Installation
 
@@ -124,6 +131,10 @@ This will create a binary at `bin/recon` (or install to `/usr/local/bin/recon`).
     Output directory (required)
     Example: results or /root/scans/target-name
 
+-skip-vhost
+    Skip VHost fuzzing (faster, recommended for large scans)
+    VHost fuzzing can be slow on large IP sets
+
 -h
     Show help message
 ```
@@ -136,6 +147,9 @@ This will create a binary at `bin/recon` (or install to `/usr/local/bin/recon`).
 
 # Scan with absolute path
 ./bin/recon -d avantgardportal.com -o /root/scans/avantgard
+
+# Skip VHost fuzzing for faster results
+./bin/recon -d example.com -o results -skip-vhost
 
 # After installation (system-wide)
 recon -d target.com -o /root/recon/target
@@ -186,10 +200,14 @@ The tool executes the following workflow:
    - Uses httpx for HTTP/HTTPS probing
    - Saves live hosts separately
 
-6. **VHost Fuzzing** (Advanced)
+6. **VHost Fuzzing** (Advanced - Optional with -skip-vhost)
    - Extracts IPs from discovered subdomains
    - Collects IPs from Shodan via SSL certificate search
-   - Runs ffuf for virtual host fuzzing on each IP
+   - Filters out CDN/Cloud provider IPs (Cloudflare, AWS, Azure, GCP, etc.)
+   - Selects top 50 most common IPs for targeted fuzzing
+   - Uses dedicated small VHost wordlist (120 entries)
+   - Shows live progress for each IP being tested
+   - Runs ffuf for virtual host fuzzing on selected IPs
    - Discovers hidden subdomains without DNS records
    - Filters out already known subdomains
    - Verifies if vhost-discovered subdomains are live

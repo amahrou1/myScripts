@@ -20,13 +20,15 @@ import (
 )
 
 type Enumerator struct {
-	Domain       string
-	OutputDir    string
-	Wordlist     string
-	Resolvers    string
-	ShodanAPIKey string
-	PythonScript string
-	Verbose      bool
+	Domain        string
+	OutputDir     string
+	Wordlist      string
+	VHostWordlist string
+	Resolvers     string
+	ShodanAPIKey  string
+	PythonScript  string
+	SkipVHost     bool
+	Verbose       bool
 }
 
 type Result struct {
@@ -39,13 +41,15 @@ type Result struct {
 // NewEnumerator creates a new subdomain enumerator
 func NewEnumerator(domain, outputDir string) *Enumerator {
 	return &Enumerator{
-		Domain:       domain,
-		OutputDir:    outputDir,
-		Wordlist:     "/root/myLists/subdomains.txt",
-		Resolvers:    "/root/myLists/resolvers.txt",
-		ShodanAPIKey: "j8PrRv5fW2Ox7Vt8PBJIdNokQv5lsBD1",
-		PythonScript: "/root/tools/subdomain-enum/subdomain-Enum.py",
-		Verbose:      true,
+		Domain:        domain,
+		OutputDir:     outputDir,
+		Wordlist:      "/root/myLists/subdomains.txt",
+		VHostWordlist: "/root/myLists/vhost-wordlist.txt",
+		Resolvers:     "/root/myLists/resolvers.txt",
+		ShodanAPIKey:  "j8PrRv5fW2Ox7Vt8PBJIdNokQv5lsBD1",
+		PythonScript:  "/root/tools/subdomain-enum/subdomain-Enum.py",
+		SkipVHost:     false,
+		Verbose:       true,
 	}
 }
 
@@ -137,14 +141,17 @@ func (e *Enumerator) Run() error {
 	cyan.Printf("✓ Found %d live hosts\n", len(liveSubs))
 
 	// Step 6: VHost Fuzzing
-	yellow.Println("\n═══════════════════════════════════════════════════════")
-	yellow.Println("[Step 6/6] VHost Fuzzing (Hidden Subdomains)")
-	yellow.Println("═══════════════════════════════════════════════════════")
+	if e.SkipVHost {
+		yellow.Println("\n[Step 6/6] VHost Fuzzing - SKIPPED (use without -skip-vhost to enable)")
+	} else {
+		yellow.Println("\n═══════════════════════════════════════════════════════")
+		yellow.Println("[Step 6/6] VHost Fuzzing (Hidden Subdomains)")
+		yellow.Println("═══════════════════════════════════════════════════════")
 
-	vhostSubs, err := e.runVHostFuzzing(allSubs)
-	if err != nil {
-		red.Printf("✗ VHost fuzzing error: %v\n", err)
-	} else if len(vhostSubs) > 0 {
+		vhostSubs, err := e.runVHostFuzzing(allSubs)
+		if err != nil {
+			red.Printf("✗ VHost fuzzing error: %v\n", err)
+		} else if len(vhostSubs) > 0 {
 		cyan.Printf("✓ Found %d new subdomains via VHost fuzzing\n", len(vhostSubs))
 
 		// Merge vhost results with all subdomains
@@ -172,8 +179,9 @@ func (e *Enumerator) Run() error {
 			}
 			cyan.Printf("✓ Found %d live vhost subdomains\n", len(liveVhostSubs))
 		}
-	} else {
-		cyan.Println("→ No new subdomains found via VHost fuzzing")
+		} else {
+			cyan.Println("→ No new subdomains found via VHost fuzzing")
+		}
 	}
 
 	// Summary
@@ -649,6 +657,7 @@ func (e *Enumerator) detectLiveHosts(subdomains []string) ([]string, error) {
 func (e *Enumerator) runVHostFuzzing(knownSubdomains []string) ([]string, error) {
 	cyan := color.New(color.FgCyan)
 	green := color.New(color.FgGreen)
+	yellow := color.New(color.FgYellow)
 
 	cyan.Println("→ Collecting IPs for VHost fuzzing...")
 
@@ -667,10 +676,31 @@ func (e *Enumerator) runVHostFuzzing(knownSubdomains []string) ([]string, error)
 		return nil, fmt.Errorf("no IPs found for VHost fuzzing")
 	}
 
-	cyan.Printf("→ Total unique IPs for VHost fuzzing: %d\n", len(allIPs))
+	cyan.Printf("→ Total unique IPs: %d\n", len(allIPs))
 
-	// Step 3: Run VHost fuzzing on all IPs
-	cyan.Println("→ Starting VHost fuzzing (this may take a while)...")
+	// Step 3: Filter out CDN/Cloud IPs
+	filteredIPs := e.filterCDNCloudIPs(allIPs)
+	if len(filteredIPs) < len(allIPs) {
+		yellow.Printf("→ Filtered out %d CDN/Cloud IPs\n", len(allIPs)-len(filteredIPs))
+	}
+
+	if len(filteredIPs) == 0 {
+		return nil, fmt.Errorf("no non-CDN IPs available for VHost fuzzing")
+	}
+
+	// Step 4: Limit to top 50 most common IPs
+	targetIPs := e.selectTopIPs(filteredIPs, knownSubdomains, 50)
+	cyan.Printf("→ Selected top %d IPs for VHost fuzzing\n", len(targetIPs))
+
+	// Check if VHost wordlist exists
+	if _, err := os.Stat(e.VHostWordlist); os.IsNotExist(err) {
+		yellow.Printf("⚠ VHost wordlist not found: %s\n", e.VHostWordlist)
+		yellow.Println("→ Using main wordlist (this may be slower)")
+		e.VHostWordlist = e.Wordlist
+	}
+
+	// Step 5: Run VHost fuzzing on selected IPs
+	cyan.Printf("→ Starting VHost fuzzing on %d IPs...\n", len(targetIPs))
 
 	var newSubdomains []string
 	var mu sync.Mutex
@@ -679,20 +709,24 @@ func (e *Enumerator) runVHostFuzzing(knownSubdomains []string) ([]string, error)
 	// Limit concurrent ffuf instances to avoid overwhelming the system
 	semaphore := make(chan struct{}, 5)
 
-	for _, ip := range allIPs {
+	for idx, ip := range targetIPs {
 		wg.Add(1)
-		go func(targetIP string) {
+		go func(targetIP string, index int) {
 			defer wg.Done()
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
+
+			// Progress tracking
+			cyan.Printf("  [%d/%d] Testing %s\n", index+1, len(targetIPs), targetIP)
 
 			subs := e.fuzzVHost(targetIP)
 			if len(subs) > 0 {
 				mu.Lock()
 				newSubdomains = append(newSubdomains, subs...)
+				green.Printf("    ✓ Found %d potential vhosts on %s\n", len(subs), targetIP)
 				mu.Unlock()
 			}
-		}(ip)
+		}(ip, idx)
 	}
 
 	wg.Wait()
@@ -799,6 +833,98 @@ func (e *Enumerator) getIPsFromShodan() []string {
 	return ips
 }
 
+// filterCDNCloudIPs filters out known CDN and Cloud provider IPs
+func (e *Enumerator) filterCDNCloudIPs(ips []string) []string {
+	// Common CDN/Cloud IP ranges (simplified check)
+	cdnPrefixes := []string{
+		"104.16.", "104.17.", "104.18.", "104.19.", "104.20.", "104.21.", "104.22.", "104.23.", "104.24.", "104.25.", "104.26.", "104.27.", "104.28.", "104.29.", "104.30.", "104.31.", // Cloudflare
+		"172.64.", "172.65.", "172.66.", "172.67.", "172.68.", "172.69.", "172.70.", "172.71.", // Cloudflare
+		"173.245.", "103.21.", "103.22.", "103.31.", "141.101.", "108.162.", "190.93.", "188.114.", "197.234.", "198.41.", // Cloudflare
+		"13.32.", "13.33.", "13.35.", "99.84.", "143.204.", "144.220.", // CloudFront
+		"54.", "3.", "52.", "18.", "35.", // AWS (broad match)
+		"34.", "35.", "104.154.", "104.155.", "104.196.", "104.197.", "104.198.", "104.199.", // Google Cloud
+		"13.64.", "13.65.", "13.66.", "13.67.", "13.68.", "13.69.", "13.70.", "13.71.", "13.72.", "13.73.", "13.74.", "13.75.", // Azure
+		"40.", "52.", "104.", "137.", "138.", "139.", "168.", // Azure (broad match)
+		"151.101.", "185.199.", // Fastly
+		"192.229.", "205.251.", // Akamai/AWS
+	}
+
+	var filtered []string
+	for _, ip := range ips {
+		isCDN := false
+		for _, prefix := range cdnPrefixes {
+			if strings.HasPrefix(ip, prefix) {
+				isCDN = true
+				break
+			}
+		}
+		if !isCDN {
+			filtered = append(filtered, ip)
+		}
+	}
+
+	return filtered
+}
+
+// selectTopIPs selects the top N most frequently occurring IPs
+func (e *Enumerator) selectTopIPs(ips []string, subdomains []string, limit int) []string {
+	// Count how many subdomains point to each IP
+	ipCount := make(map[string]int)
+
+	// Build a map of subdomain -> IP for quick lookup
+	subToIP := make(map[string]string)
+	for _, subdomain := range subdomains {
+		// Clean subdomain
+		sub := strings.TrimPrefix(subdomain, "http://")
+		sub = strings.TrimPrefix(sub, "https://")
+		sub = strings.Split(sub, "/")[0]
+
+		// Quick DNS lookup
+		cmd := exec.Command("dig", "+short", sub, "A")
+		output, err := cmd.Output()
+		if err != nil {
+			continue
+		}
+
+		scanner := bufio.NewScanner(strings.NewReader(string(output)))
+		for scanner.Scan() {
+			ip := strings.TrimSpace(scanner.Text())
+			if matched, _ := regexp.MatchString(`^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`, ip); matched {
+				subToIP[sub] = ip
+				ipCount[ip]++
+				break
+			}
+		}
+	}
+
+	// Create a slice of IP with their counts
+	type ipWithCount struct {
+		ip    string
+		count int
+	}
+
+	var ipCounts []ipWithCount
+	for _, ip := range ips {
+		ipCounts = append(ipCounts, ipWithCount{
+			ip:    ip,
+			count: ipCount[ip],
+		})
+	}
+
+	// Sort by count (descending)
+	sort.Slice(ipCounts, func(i, j int) bool {
+		return ipCounts[i].count > ipCounts[j].count
+	})
+
+	// Select top N
+	result := make([]string, 0, limit)
+	for i := 0; i < len(ipCounts) && i < limit; i++ {
+		result = append(result, ipCounts[i].ip)
+	}
+
+	return result
+}
+
 // fuzzVHost runs ffuf for VHost fuzzing on a single IP
 func (e *Enumerator) fuzzVHost(ip string) []string {
 	// Create temp output file for ffuf results
@@ -806,9 +932,9 @@ func (e *Enumerator) fuzzVHost(ip string) []string {
 	defer os.Remove(tempFile)
 
 	// Run ffuf for VHost fuzzing
-	// Using wordlist and filtering by status codes
+	// Using VHost wordlist and filtering by status codes
 	cmd := exec.Command("ffuf",
-		"-w", e.Wordlist,
+		"-w", e.VHostWordlist,
 		"-u", fmt.Sprintf("http://%s", ip),
 		"-H", fmt.Sprintf("Host: FUZZ.%s", e.Domain),
 		"-mc", "200,403,401,404,503,301,302,307",
