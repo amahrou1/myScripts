@@ -18,6 +18,11 @@ A fast, efficient, and scalable reconnaissance framework for bug bounty hunting,
   - **Python subdomain-Enum.py** - Custom Python enumeration script
 - ✅ **Brute Force with massdns** - Fast DNS brute forcing (skipped if wildcard detected)
 - ✅ **Live Host Detection** - Uses httpx to verify live services
+- ✅ **VHost Fuzzing** - Discovers hidden subdomains via virtual host fuzzing
+  - Extracts IPs from discovered subdomains
+  - Queries Shodan for IPs via SSL certificates (status codes: 200, 403, 401, 404, 503, 301, 302, 307)
+  - Uses ffuf for concurrent VHost fuzzing
+  - Filters results to find truly new subdomains
 - ✅ **Deduplication** - Automatically removes duplicates and sorts results
 - ✅ **Live Progress Tracking** - Real-time colored output showing progress
 - ✅ **Organized Output** - Structured results in custom output directories
@@ -30,7 +35,7 @@ Make sure these tools are installed and available in your PATH:
 
 ```bash
 # Check if tools are installed
-which subfinder amass assetfinder findomain massdns httpx dig
+which subfinder amass assetfinder findomain massdns httpx dig ffuf shodan
 ```
 
 **Installation on Ubuntu/Debian:**
@@ -63,6 +68,14 @@ git clone https://github.com/blechschmidt/massdns.git
 cd massdns
 make
 sudo make install
+
+# ffuf (for VHost fuzzing)
+go install github.com/ffuf/ffuf@latest
+
+# Shodan CLI (for IP collection)
+pip install shodan
+# Configure with your API key:
+shodan init YOUR_API_KEY
 ```
 
 ### Required Wordlists
@@ -134,14 +147,16 @@ After running a scan, the output directory will contain:
 
 ```
 results/
-├── all-subdomains.txt      # All unique subdomains found
-└── live-subdomains.txt     # Subdomains with live HTTP/HTTPS services
+├── all-subdomains.txt      # All unique subdomains found (includes vhost results)
+├── live-subdomains.txt     # Subdomains with live HTTP/HTTPS services
+└── vhost-subdomains.txt    # Subdomains discovered via VHost fuzzing (if any)
 ```
 
 ### Output Files
 
-- **all-subdomains.txt**: Complete list of unique subdomains from all sources
+- **all-subdomains.txt**: Complete list of unique subdomains from all sources (passive + brute force + vhost)
 - **live-subdomains.txt**: Subdomains verified to have active web services (HTTP/HTTPS)
+- **vhost-subdomains.txt**: Subdomains discovered specifically via VHost fuzzing (created only if VHost finds new results)
 
 ## 🎯 Workflow
 
@@ -152,7 +167,7 @@ The tool executes the following workflow:
    - If detected, brute force is skipped
 
 2. **Passive Enumeration** (Concurrent)
-   - Runs 4 tools simultaneously
+   - Runs 8 sources simultaneously (subfinder, amass, assetfinder, findomain, wayback, crt.sh, subshodan, python-enum)
    - Collects subdomains from multiple sources
    - Shows progress for each tool
 
@@ -170,6 +185,14 @@ The tool executes the following workflow:
    - Verifies which subdomains are live
    - Uses httpx for HTTP/HTTPS probing
    - Saves live hosts separately
+
+6. **VHost Fuzzing** (Advanced)
+   - Extracts IPs from discovered subdomains
+   - Collects IPs from Shodan via SSL certificate search
+   - Runs ffuf for virtual host fuzzing on each IP
+   - Discovers hidden subdomains without DNS records
+   - Filters out already known subdomains
+   - Verifies if vhost-discovered subdomains are live
 
 ## 🎨 Output Example
 
