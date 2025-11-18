@@ -121,7 +121,7 @@ func (e *Enumerator) Run() error {
 
 	// Step 5: Live Host Detection
 	yellow.Println("\n═══════════════════════════════════════════════════════")
-	yellow.Println("[Step 5/5] Live Host Detection (httpx)")
+	yellow.Println("[Step 5/6] Live Host Detection (httpx)")
 	yellow.Println("═══════════════════════════════════════════════════════")
 
 	liveSubs, err := e.detectLiveHosts(allSubs)
@@ -133,6 +133,47 @@ func (e *Enumerator) Run() error {
 	liveSubsFile := filepath.Join(e.OutputDir, "live-subdomains.txt")
 	if err := e.writeToFile(liveSubsFile, liveSubs); err != nil {
 		return err
+	}
+	cyan.Printf("✓ Found %d live hosts\n", len(liveSubs))
+
+	// Step 6: VHost Fuzzing
+	yellow.Println("\n═══════════════════════════════════════════════════════")
+	yellow.Println("[Step 6/6] VHost Fuzzing (Hidden Subdomains)")
+	yellow.Println("═══════════════════════════════════════════════════════")
+
+	vhostSubs, err := e.runVHostFuzzing(allSubs)
+	if err != nil {
+		red.Printf("✗ VHost fuzzing error: %v\n", err)
+	} else if len(vhostSubs) > 0 {
+		cyan.Printf("✓ Found %d new subdomains via VHost fuzzing\n", len(vhostSubs))
+
+		// Merge vhost results with all subdomains
+		allSubs = e.deduplicateSubdomains(allSubs, vhostSubs)
+
+		// Update all-subdomains.txt with vhost results
+		if err := e.writeToFile(allSubsFile, allSubs); err != nil {
+			return err
+		}
+
+		// Save vhost-specific results
+		vhostFile := filepath.Join(e.OutputDir, "vhost-subdomains.txt")
+		if err := e.writeToFile(vhostFile, vhostSubs); err != nil {
+			return err
+		}
+		green.Printf("✓ Saved vhost subdomains to: %s\n", vhostFile)
+
+		// Check if vhost subdomains are live
+		liveVhostSubs, err := e.detectLiveHosts(vhostSubs)
+		if err == nil && len(liveVhostSubs) > 0 {
+			// Merge with live subdomains
+			liveSubs = e.deduplicateSubdomains(liveSubs, liveVhostSubs)
+			if err := e.writeToFile(liveSubsFile, liveSubs); err != nil {
+				return err
+			}
+			cyan.Printf("✓ Found %d live vhost subdomains\n", len(liveVhostSubs))
+		}
+	} else {
+		cyan.Println("→ No new subdomains found via VHost fuzzing")
 	}
 
 	// Summary
@@ -601,10 +642,266 @@ func (e *Enumerator) detectLiveHosts(subdomains []string) ([]string, error) {
 		}
 	}
 
-	green := color.New(color.FgGreen)
-	green.Printf("✓ Found %d live hosts\n", len(liveSubs))
-
 	return liveSubs, nil
+}
+
+// runVHostFuzzing performs virtual host fuzzing to discover hidden subdomains
+func (e *Enumerator) runVHostFuzzing(knownSubdomains []string) ([]string, error) {
+	cyan := color.New(color.FgCyan)
+	green := color.New(color.FgGreen)
+
+	cyan.Println("→ Collecting IPs for VHost fuzzing...")
+
+	// Step 1: Extract IPs from known subdomains
+	subdomainIPs := e.extractIPsFromSubdomains(knownSubdomains)
+	cyan.Printf("→ Extracted %d unique IPs from subdomains\n", len(subdomainIPs))
+
+	// Step 2: Get IPs from Shodan via SSL certificates
+	shodanIPs := e.getIPsFromShodan()
+	cyan.Printf("→ Found %d IPs from Shodan SSL certificates\n", len(shodanIPs))
+
+	// Combine all IPs
+	allIPs := e.deduplicateIPs(subdomainIPs, shodanIPs)
+
+	if len(allIPs) == 0 {
+		return nil, fmt.Errorf("no IPs found for VHost fuzzing")
+	}
+
+	cyan.Printf("→ Total unique IPs for VHost fuzzing: %d\n", len(allIPs))
+
+	// Step 3: Run VHost fuzzing on all IPs
+	cyan.Println("→ Starting VHost fuzzing (this may take a while)...")
+
+	var newSubdomains []string
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	// Limit concurrent ffuf instances to avoid overwhelming the system
+	semaphore := make(chan struct{}, 5)
+
+	for _, ip := range allIPs {
+		wg.Add(1)
+		go func(targetIP string) {
+			defer wg.Done()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			subs := e.fuzzVHost(targetIP)
+			if len(subs) > 0 {
+				mu.Lock()
+				newSubdomains = append(newSubdomains, subs...)
+				mu.Unlock()
+			}
+		}(ip)
+	}
+
+	wg.Wait()
+
+	// Deduplicate and filter out already known subdomains
+	uniqueNew := e.filterNewSubdomains(newSubdomains, knownSubdomains)
+
+	if len(uniqueNew) > 0 {
+		green.Printf("✓ VHost fuzzing discovered %d new subdomains\n", len(uniqueNew))
+	}
+
+	return uniqueNew, nil
+}
+
+// extractIPsFromSubdomains resolves subdomains to IPs
+func (e *Enumerator) extractIPsFromSubdomains(subdomains []string) []string {
+	ipMap := make(map[string]bool)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	// Limit concurrent resolutions
+	semaphore := make(chan struct{}, 50)
+
+	for _, subdomain := range subdomains {
+		wg.Add(1)
+		go func(sub string) {
+			defer wg.Done()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			// Remove protocol if present
+			sub = strings.TrimPrefix(sub, "http://")
+			sub = strings.TrimPrefix(sub, "https://")
+			sub = strings.Split(sub, "/")[0]
+
+			// Use dig to resolve
+			cmd := exec.Command("dig", "+short", sub, "A")
+			output, err := cmd.Output()
+			if err != nil {
+				return
+			}
+
+			// Parse IPs from output
+			scanner := bufio.NewScanner(strings.NewReader(string(output)))
+			for scanner.Scan() {
+				ip := strings.TrimSpace(scanner.Text())
+				// Validate IP format (basic check)
+				if matched, _ := regexp.MatchString(`^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`, ip); matched {
+					mu.Lock()
+					ipMap[ip] = true
+					mu.Unlock()
+				}
+			}
+		}(subdomain)
+	}
+
+	wg.Wait()
+
+	var ips []string
+	for ip := range ipMap {
+		ips = append(ips, ip)
+	}
+
+	return ips
+}
+
+// getIPsFromShodan gets IPs from Shodan using SSL certificate search
+func (e *Enumerator) getIPsFromShodan() []string {
+	if e.ShodanAPIKey == "" {
+		return nil
+	}
+
+	cyan := color.New(color.FgCyan)
+	cyan.Println("→ Querying Shodan for IPs via SSL certificates...")
+
+	// Status codes to search for
+	statusCodes := []string{"200", "403", "401", "404", "503", "301", "302", "307"}
+	ipMap := make(map[string]bool)
+
+	for _, code := range statusCodes {
+		query := fmt.Sprintf(`Ssl.cert.subject.CN:"%s" %s`, e.Domain, code)
+
+		cmd := exec.Command("shodan", "search", query, "--fields", "ip_str")
+		output, err := cmd.Output()
+
+		if err != nil {
+			continue
+		}
+
+		scanner := bufio.NewScanner(strings.NewReader(string(output)))
+		for scanner.Scan() {
+			ip := strings.TrimSpace(scanner.Text())
+			if ip != "" {
+				ipMap[ip] = true
+			}
+		}
+	}
+
+	var ips []string
+	for ip := range ipMap {
+		ips = append(ips, ip)
+	}
+
+	return ips
+}
+
+// fuzzVHost runs ffuf for VHost fuzzing on a single IP
+func (e *Enumerator) fuzzVHost(ip string) []string {
+	// Create temp output file for ffuf results
+	tempFile := filepath.Join(e.OutputDir, fmt.Sprintf("vhost-ffuf-%s.txt", strings.Replace(ip, ".", "-", -1)))
+	defer os.Remove(tempFile)
+
+	// Run ffuf for VHost fuzzing
+	// Using wordlist and filtering by status codes
+	cmd := exec.Command("ffuf",
+		"-w", e.Wordlist,
+		"-u", fmt.Sprintf("http://%s", ip),
+		"-H", fmt.Sprintf("Host: FUZZ.%s", e.Domain),
+		"-mc", "200,403,401,404,503,301,302,307",
+		"-o", tempFile,
+		"-of", "json",
+		"-t", "50",
+		"-timeout", "10",
+		"-s", // Silent mode
+	)
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		return nil
+	}
+
+	// Read and parse ffuf JSON output
+	data, err := os.ReadFile(tempFile)
+	if err != nil {
+		return nil
+	}
+
+	var ffufResult struct {
+		Results []struct {
+			Input struct {
+				FUZZ string `json:"FUZZ"`
+			} `json:"input"`
+			Status int `json:"status"`
+			Length int `json:"length"`
+		} `json:"results"`
+	}
+
+	if err := json.Unmarshal(data, &ffufResult); err != nil {
+		return nil
+	}
+
+	// Extract subdomains from results
+	var subdomains []string
+	for _, result := range ffufResult.Results {
+		if result.Input.FUZZ != "" {
+			subdomain := result.Input.FUZZ + "." + e.Domain
+			subdomains = append(subdomains, subdomain)
+		}
+	}
+
+	return subdomains
+}
+
+// deduplicateIPs combines and deduplicates IP lists
+func (e *Enumerator) deduplicateIPs(lists ...[]string) []string {
+	ipMap := make(map[string]bool)
+
+	for _, list := range lists {
+		for _, ip := range list {
+			ip = strings.TrimSpace(ip)
+			if ip != "" {
+				ipMap[ip] = true
+			}
+		}
+	}
+
+	var unique []string
+	for ip := range ipMap {
+		unique = append(unique, ip)
+	}
+
+	return unique
+}
+
+// filterNewSubdomains returns only new subdomains not in known list
+func (e *Enumerator) filterNewSubdomains(discovered, known []string) []string {
+	knownMap := make(map[string]bool)
+	for _, sub := range known {
+		knownMap[strings.ToLower(strings.TrimSpace(sub))] = true
+	}
+
+	newMap := make(map[string]bool)
+	for _, sub := range discovered {
+		subLower := strings.ToLower(strings.TrimSpace(sub))
+		if !knownMap[subLower] && subLower != "" {
+			newMap[subLower] = true
+		}
+	}
+
+	var newSubs []string
+	for sub := range newMap {
+		newSubs = append(newSubs, sub)
+	}
+
+	sort.Strings(newSubs)
+	return newSubs
 }
 
 // deduplicateSubdomains combines and deduplicates subdomain lists
