@@ -31,6 +31,7 @@ func main() {
 	// Command line flags
 	domain := flag.String("d", "", "Target domain (required)")
 	output := flag.String("o", "", "Output directory (required)")
+	skipVhost := flag.Bool("skip-vhost", false, "Skip VHost fuzzing (faster)")
 	help := flag.Bool("h", false, "Show help")
 
 	flag.Parse()
@@ -82,6 +83,7 @@ func main() {
 	startTime := time.Now()
 
 	enumerator := subdomains.NewEnumerator(*domain, outputDir)
+	enumerator.SkipVHost = *skipVhost
 	if err := enumerator.Run(); err != nil {
 		color.Red("\n✗ Error: %v\n", err)
 		os.Exit(1)
@@ -108,6 +110,8 @@ func showHelp() {
 	white.Println("      Target domain (e.g., example.com)")
 	white.Println("  -o string")
 	white.Println("      Output directory for results")
+	white.Println("  -skip-vhost")
+	white.Println("      Skip VHost fuzzing (faster, recommended for large scans)")
 	white.Println("  -h")
 	white.Println("      Show this help message")
 
@@ -117,6 +121,9 @@ func showHelp() {
 	white.Println()
 	white.Println("  # Scan with custom output directory")
 	white.Println("  ./recon -d avantgardportal.com -o /root/scans/avantgard")
+	white.Println()
+	white.Println("  # Skip VHost fuzzing for faster results")
+	white.Println("  ./recon -d example.com -o results -skip-vhost")
 
 	yellow.Println("\nOUTPUT FILES:")
 	white.Println("  all-subdomains.txt   - All discovered subdomains (unique)")
