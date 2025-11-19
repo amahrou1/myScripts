@@ -79,7 +79,16 @@ func (s *Scanner) Run(liveSubsFile, shodanIPsFile string) error {
 	if _, err := os.Stat(shodanIPsFile); err == nil {
 		ips, err := s.readLines(shodanIPsFile)
 		if err == nil {
-			targets = append(targets, ips...)
+			// Clean URLs - remove http:// and https:// prefixes
+			for _, ip := range ips {
+				cleaned := strings.TrimPrefix(ip, "http://")
+				cleaned = strings.TrimPrefix(cleaned, "https://")
+				cleaned = strings.Split(cleaned, "/")[0]
+				cleaned = strings.Split(cleaned, ":")[0] // Remove port if present
+				if cleaned != "" {
+					targets = append(targets, cleaned)
+				}
+			}
 			cyan.Printf("→ Loaded %d Shodan IPs for port scanning\n", len(ips))
 		}
 	} else {
