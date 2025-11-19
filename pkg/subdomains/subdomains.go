@@ -492,7 +492,8 @@ func (e *Enumerator) runPythonScript(results chan<- Result) {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		result.Error = fmt.Errorf("python script failed: %v - %s", err, stderr.String())
+		// Silently skip if the script fails - it's not critical
+		result.Error = fmt.Errorf("failed (API issue or script error)")
 		results <- result
 		return
 	}
@@ -668,6 +669,14 @@ func (e *Enumerator) runVHostFuzzing(knownSubdomains []string) ([]string, error)
 	// Step 2: Get IPs from Shodan via SSL certificates
 	shodanIPs := e.getIPsFromShodan()
 	cyan.Printf("→ Found %d IPs from Shodan SSL certificates\n", len(shodanIPs))
+
+	// Save Shodan IPs to file
+	if len(shodanIPs) > 0 {
+		shodanIPsFile := filepath.Join(e.OutputDir, "shodan-ips.txt")
+		if err := e.writeToFile(shodanIPsFile, shodanIPs); err == nil {
+			green.Printf("✓ Saved Shodan IPs to: %s\n", shodanIPsFile)
+		}
+	}
 
 	// Combine all IPs
 	allIPs := e.deduplicateIPs(subdomainIPs, shodanIPs)
