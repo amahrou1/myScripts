@@ -39,7 +39,8 @@ A fast, efficient, and scalable reconnaissance framework for bug bounty hunting,
 - ✅ **Dual Template Support** - Uses both default and custom templates
   - Default: `/root/nuclei-templates` (Project Discovery templates)
   - Custom: `/root/test123` (Your custom templates)
-- ✅ **Severity Filtering** - Scans for low, medium, high, and critical vulnerabilities
+- ✅ **Severity Filtering** - Scans for medium, high, and critical vulnerabilities
+- ✅ **Clean Progress Output** - Single-line progress updates instead of multiple lines
 - ✅ **Real-time Output** - Shows scan progress and findings as they happen
 - ✅ **Optional -skip-nuclei flag** - Skip Nuclei scanning for faster runs
 - ✅ **Organized Results** - Saves findings to `nuclei.txt`
@@ -54,6 +55,20 @@ A fast, efficient, and scalable reconnaissance framework for bug bounty hunting,
 - ✅ **Fast Scanning with naabu** - Uses Project Discovery's naabu for speed
 - ✅ **Optional -skip-portscan flag** - Skip port scanning for faster runs
 - ✅ **Organized Results** - Saves live services to `open-ports.txt`
+
+### Step 4: Directory Fuzzing
+
+- ✅ **Intelligent Directory Discovery** - Discovers hidden directories and files
+- ✅ **Multi-Target Fuzzing** - Fuzzes both Shodan IPs and live subdomains
+- ✅ **Smart False Positive Filtering** - Automatically filters results if >5 endpoints have same word length
+- ✅ **Concurrent Fuzzing** - Processes 3 targets simultaneously for speed
+- ✅ **Status Code Filtering** - Focuses on interesting status codes: 200, 301, 302, 307, 403
+- ✅ **Fast Fuzzing with ffuf** - Uses ffuf with auto-calibration (-ac flag)
+- ✅ **Custom Wordlist Support** - Uses `/root/myLists/myList.txt`
+- ✅ **Progress Tracking** - Shows [N/M] current target being fuzzed
+- ✅ **Statistical Analysis** - Groups results by word length to detect patterns
+- ✅ **Optional -skip-dirfuzz flag** - Skip directory fuzzing for faster runs
+- ✅ **Organized Results** - Saves discoveries to `fuzz.txt` with format: [STATUS] [SIZE] [WORDS] URL
 
 ## 📋 Prerequisites
 
@@ -118,6 +133,7 @@ go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest
 
 - Subdomain wordlist: `/root/myLists/subdomains.txt`
 - VHost wordlist: `/root/myLists/vhost-wordlist.txt` (auto-created from config/)
+- Directory fuzzing wordlist: `/root/myLists/myList.txt`
 - DNS resolvers: `/root/myLists/resolvers.txt`
 
 ### Configuration
@@ -169,6 +185,9 @@ This will create a binary at `bin/recon` (or install to `/usr/local/bin/recon`).
 -skip-portscan
     Skip port scanning (top 5000 ports)
 
+-skip-dirfuzz
+    Skip directory fuzzing
+
 -skip-nuclei
     Skip Nuclei vulnerability scanning
 
@@ -217,9 +236,10 @@ results/
 - **all-subdomains.txt**: Complete list of unique subdomains from all sources (passive + brute force + vhost)
 - **live-subdomains.txt**: Subdomains verified to have active web services (HTTP/HTTPS)
 - **vhost-subdomains.txt**: Subdomains discovered specifically via VHost fuzzing (created only if VHost finds new results)
-- **shodan-ips.txt**: IPs collected from Shodan via SSL certificate search
+- **shodan-ips.txt**: IPs collected from Shodan via SSL certificate search (verified live with httpx)
 - **open-ports.txt**: Live services on non-standard ports (e.g., https://example.com:8443)
-- **nuclei.txt**: Vulnerability findings from Nuclei scans (low, medium, high, critical severities)
+- **fuzz.txt**: Discovered directories and files from directory fuzzing (format: [STATUS] [SIZE] [WORDS] URL)
+- **nuclei.txt**: Vulnerability findings from Nuclei scans (medium, high, critical severities)
 
 ## 🎯 Workflow
 
@@ -249,9 +269,13 @@ The tool executes the following workflow:
    - Uses httpx for HTTP/HTTPS probing
    - Saves live hosts separately
 
-6. **VHost Fuzzing** (Advanced - Optional with -skip-vhost)
-   - Extracts IPs from discovered subdomains
+6. **Shodan IP Collection**
    - Collects IPs from Shodan via SSL certificate search
+   - Verifies IPs with httpx (both http:// and https://)
+   - Saves only live IPs with proper URL format
+
+7. **VHost Fuzzing** (Advanced - Optional with -skip-vhost)
+   - Extracts IPs from discovered subdomains
    - Filters out CDN/Cloud provider IPs (Cloudflare, AWS, Azure, GCP, etc.)
    - Selects top 50 most common IPs for targeted fuzzing
    - Uses dedicated small VHost wordlist (120 entries)
@@ -260,6 +284,29 @@ The tool executes the following workflow:
    - Discovers hidden subdomains without DNS records
    - Filters out already known subdomains
    - Verifies if vhost-discovered subdomains are live
+
+8. **Port Scanning** (Step 3 - Optional with -skip-portscan)
+   - Scans top 5000 ports on all live subdomains and Shodan IPs
+   - Excludes default ports (80, 443)
+   - Uses naabu for fast scanning
+   - Verifies discovered ports with httpx
+   - Saves as full URLs (e.g., https://target.com:8443)
+
+9. **Directory Fuzzing** (Step 4 - Optional with -skip-dirfuzz)
+   - Fuzzes live Shodan IPs and subdomains
+   - Uses custom wordlist (/root/myLists/myList.txt)
+   - Filters status codes: 200, 301, 302, 307, 403
+   - Concurrent fuzzing (3 targets at a time)
+   - Smart filtering: removes results if >5 have same word length
+   - Auto-calibration with ffuf
+   - Shows progress for each target
+
+10. **Vulnerability Scanning** (Step 2 - Optional with -skip-nuclei)
+    - Scans all live subdomains and Shodan IPs with Nuclei
+    - Uses both default (/root/nuclei-templates) and custom templates (/root/test123)
+    - Filters for medium, high, and critical severities
+    - Single-line progress updates
+    - Saves findings to nuclei.txt
 
 ## 🎨 Output Example
 
