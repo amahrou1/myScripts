@@ -178,8 +178,8 @@ func (s *Scanner) runNaabu(targetsFile, outputFile string) error {
 
 	args := []string{
 		"-list", targetsFile,
-		"-top-ports", fmt.Sprintf("%d", s.TopPorts),
-		"-exclude-ports", s.ExcludePorts,
+		"-tp", fmt.Sprintf("%d", s.TopPorts),
+		"-ep", s.ExcludePorts,
 		"-json",
 		"-o", outputFile,
 		"-silent",
