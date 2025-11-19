@@ -226,8 +226,9 @@ results/
 ├── all-subdomains.txt      # All unique subdomains found (includes vhost results)
 ├── live-subdomains.txt     # Subdomains with live HTTP/HTTPS services
 ├── vhost-subdomains.txt    # Subdomains discovered via VHost fuzzing (if any)
-├── shodan-ips.txt          # IPs collected from Shodan
+├── shodan-ips.txt          # IPs collected from Shodan (verified live)
 ├── open-ports.txt          # Live services on non-standard ports
+├── fuzz.txt                # Discovered directories/files from fuzzing
 └── nuclei.txt              # Nuclei vulnerability scan results
 ```
 
