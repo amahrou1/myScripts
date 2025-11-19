@@ -140,6 +140,22 @@ func (e *Enumerator) Run() error {
 	}
 	cyan.Printf("✓ Found %d live hosts\n", len(liveSubs))
 
+	// Collect Shodan IPs (always, regardless of VHost fuzzing)
+	yellow.Println("\n═══════════════════════════════════════════════════════")
+	yellow.Println("[Bonus] Shodan IP Collection")
+	yellow.Println("═══════════════════════════════════════════════════════")
+
+	shodanIPs := e.getIPsFromShodan()
+	if len(shodanIPs) > 0 {
+		cyan.Printf("→ Found %d IPs from Shodan SSL certificates\n", len(shodanIPs))
+		shodanIPsFile := filepath.Join(e.OutputDir, "shodan-ips.txt")
+		if err := e.writeToFile(shodanIPsFile, shodanIPs); err == nil {
+			green.Printf("✓ Saved Shodan IPs to: %s\n", shodanIPsFile)
+		}
+	} else {
+		cyan.Println("→ No IPs found from Shodan")
+	}
+
 	// Step 6: VHost Fuzzing
 	if e.SkipVHost {
 		yellow.Println("\n[Step 6/6] VHost Fuzzing - SKIPPED (use without -skip-vhost to enable)")
@@ -675,15 +691,7 @@ func (e *Enumerator) runVHostFuzzing(knownSubdomains []string) ([]string, error)
 
 	// Step 2: Get IPs from Shodan via SSL certificates
 	shodanIPs := e.getIPsFromShodan()
-	cyan.Printf("→ Found %d IPs from Shodan SSL certificates\n", len(shodanIPs))
-
-	// Save Shodan IPs to file
-	if len(shodanIPs) > 0 {
-		shodanIPsFile := filepath.Join(e.OutputDir, "shodan-ips.txt")
-		if err := e.writeToFile(shodanIPsFile, shodanIPs); err == nil {
-			green.Printf("✓ Saved Shodan IPs to: %s\n", shodanIPsFile)
-		}
-	}
+	cyan.Printf("→ Found %d IPs from Shodan SSL certificates (for VHost fuzzing)\n", len(shodanIPs))
 
 	// Combine all IPs
 	allIPs := e.deduplicateIPs(subdomainIPs, shodanIPs)
