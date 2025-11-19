@@ -189,12 +189,22 @@ func (s *Scanner) runNucleiScan(targetsFile, outputFile string) error {
 		}
 	}()
 
-	// Print stderr in real-time
+	// Print stderr in real-time (progress updates on same line)
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
-			fmt.Println(scanner.Text())
+			line := scanner.Text()
+			// Check if this is a progress line (contains Templates: or RPS:)
+			if strings.Contains(line, "Templates:") || strings.Contains(line, "RPS:") {
+				// Print with carriage return to update same line
+				fmt.Printf("\r%s", line)
+			} else {
+				// Regular line, print with newline
+				fmt.Println(line)
+			}
 		}
+		// Print newline after progress is done
+		fmt.Println()
 	}()
 
 	if err := cmd.Wait(); err != nil {
