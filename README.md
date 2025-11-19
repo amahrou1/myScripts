@@ -44,6 +44,17 @@ A fast, efficient, and scalable reconnaissance framework for bug bounty hunting,
 - ✅ **Optional -skip-nuclei flag** - Skip Nuclei scanning for faster runs
 - ✅ **Organized Results** - Saves findings to `nuclei.txt`
 
+### Step 3: Port Scanning
+
+- ✅ **Smart Port Discovery** - Scans top 5000 ports on all targets
+- ✅ **Multi-Target Scanning** - Scans both live subdomains AND Shodan IPs
+- ✅ **Intelligent Filtering** - Excludes default ports (80, 443) to focus on interesting services
+- ✅ **Live Service Verification** - Uses httpx to verify discovered ports are actually live
+- ✅ **URL Format Output** - Saves results as full URLs (e.g., https://test.com:8443)
+- ✅ **Fast Scanning with naabu** - Uses Project Discovery's naabu for speed
+- ✅ **Optional -skip-portscan flag** - Skip port scanning for faster runs
+- ✅ **Organized Results** - Saves live services to `open-ports.txt`
+
 ## 📋 Prerequisites
 
 ### Required Tools
@@ -52,7 +63,7 @@ Make sure these tools are installed and available in your PATH:
 
 ```bash
 # Check if tools are installed
-which subfinder amass assetfinder findomain massdns httpx dig ffuf shodan nuclei
+which subfinder amass assetfinder findomain massdns httpx dig ffuf shodan nuclei naabu
 ```
 
 **Installation on Ubuntu/Debian:**
@@ -98,6 +109,9 @@ shodan init YOUR_API_KEY
 go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
 # Update nuclei templates
 nuclei -update-templates
+
+# Naabu (for port scanning)
+go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest
 ```
 
 ### Required Wordlists
@@ -152,6 +166,9 @@ This will create a binary at `bin/recon` (or install to `/usr/local/bin/recon`).
     Skip VHost fuzzing (faster, recommended for large scans)
     VHost fuzzing can be slow on large IP sets
 
+-skip-portscan
+    Skip port scanning (top 5000 ports)
+
 -skip-nuclei
     Skip Nuclei vulnerability scanning
 
@@ -171,8 +188,11 @@ This will create a binary at `bin/recon` (or install to `/usr/local/bin/recon`).
 # Skip VHost fuzzing for faster results
 ./bin/recon -d example.com -o results -skip-vhost
 
-# Skip both VHost and Nuclei (fastest - subdomain enum only)
-./bin/recon -d example.com -o results -skip-vhost -skip-nuclei
+# Skip port scanning
+./bin/recon -d example.com -o results -skip-vhost -skip-portscan
+
+# Subdomain enum only (fastest)
+./bin/recon -d example.com -o results -skip-vhost -skip-portscan -skip-nuclei
 
 # After installation (system-wide)
 recon -d target.com -o /root/recon/target
@@ -188,6 +208,7 @@ results/
 ├── live-subdomains.txt     # Subdomains with live HTTP/HTTPS services
 ├── vhost-subdomains.txt    # Subdomains discovered via VHost fuzzing (if any)
 ├── shodan-ips.txt          # IPs collected from Shodan
+├── open-ports.txt          # Live services on non-standard ports
 └── nuclei.txt              # Nuclei vulnerability scan results
 ```
 
@@ -197,6 +218,7 @@ results/
 - **live-subdomains.txt**: Subdomains verified to have active web services (HTTP/HTTPS)
 - **vhost-subdomains.txt**: Subdomains discovered specifically via VHost fuzzing (created only if VHost finds new results)
 - **shodan-ips.txt**: IPs collected from Shodan via SSL certificate search
+- **open-ports.txt**: Live services on non-standard ports (e.g., https://example.com:8443)
 - **nuclei.txt**: Vulnerability findings from Nuclei scans (low, medium, high, critical severities)
 
 ## 🎯 Workflow
@@ -286,8 +308,7 @@ Edit `pkg/subdomains/subdomains.go` to modify:
 
 - ✅ Step 1: Subdomain Enumeration (Complete)
 - ✅ Step 2: Nuclei Vulnerability Scanning (Complete)
-- ⏳ Step 3: Port Scanning
--⏳ Step 4: Directory Fuzzing
+- ✅ Step 3: Port Scanning (Complete)
 - ⏳ Step 4: Directory Fuzzing
 - ⏳ Step 5: URL Crawling
 - ⏳ Step 6: JavaScript File Collection
