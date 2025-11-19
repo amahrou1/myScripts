@@ -62,9 +62,7 @@ func (s *Scanner) Run(liveSubsFile, shodanIPsFile string) error {
 		if err == nil {
 			// Clean URLs - remove http:// and https://
 			for _, sub := range subs {
-				cleaned := strings.TrimPrefix(sub, "http://")
-				cleaned = strings.TrimPrefix(cleaned, "https://")
-				cleaned = strings.Split(cleaned, "/")[0]
+				cleaned := s.cleanTarget(sub)
 				if cleaned != "" {
 					targets = append(targets, cleaned)
 				}
@@ -81,10 +79,7 @@ func (s *Scanner) Run(liveSubsFile, shodanIPsFile string) error {
 		if err == nil {
 			// Clean URLs - remove http:// and https:// prefixes
 			for _, ip := range ips {
-				cleaned := strings.TrimPrefix(ip, "http://")
-				cleaned = strings.TrimPrefix(cleaned, "https://")
-				cleaned = strings.Split(cleaned, "/")[0]
-				cleaned = strings.Split(cleaned, ":")[0] // Remove port if present
+				cleaned := s.cleanTarget(ip)
 				if cleaned != "" {
 					targets = append(targets, cleaned)
 				}
@@ -305,6 +300,29 @@ func (s *Scanner) readLines(filename string) ([]string, error) {
 	}
 
 	return lines, scanner.Err()
+}
+
+// cleanTarget removes URL schemes, paths, and ports to get clean hostname/IP for naabu
+func (s *Scanner) cleanTarget(target string) string {
+	// Remove http:// or https://
+	cleaned := strings.TrimPrefix(target, "http://")
+	cleaned = strings.TrimPrefix(cleaned, "https://")
+
+	// Remove path (everything after first /)
+	cleaned = strings.Split(cleaned, "/")[0]
+
+	// Remove port (everything after :)
+	cleaned = strings.Split(cleaned, ":")[0]
+
+	// Trim whitespace
+	cleaned = strings.TrimSpace(cleaned)
+
+	// Validate: ensure no scheme remains
+	if strings.Contains(cleaned, "://") {
+		return ""
+	}
+
+	return cleaned
 }
 
 // writeLines writes lines to a file

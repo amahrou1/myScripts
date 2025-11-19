@@ -2,6 +2,7 @@ package dirfuzz
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/fatih/color"
 )
@@ -19,6 +21,7 @@ type Scanner struct {
 	Threads         int
 	FilterThreshold int // If >N results have same word length, filter them
 	StatusCodes     []int
+	Timeout         time.Duration // Timeout per target (default: 10 minutes)
 	Verbose         bool
 }
 
@@ -47,6 +50,7 @@ func NewScanner(outputDir string) *Scanner {
 		Threads:         40,
 		FilterThreshold: 5,
 		StatusCodes:     []int{200, 301, 302, 307, 403},
+		Timeout:         10 * time.Minute, // 10 minutes per target
 		Verbose:         true,
 	}
 }
@@ -190,15 +194,17 @@ func (s *Scanner) fuzzAllTargets(targets []string) ([]FfufResult, error) {
 	return allResults, nil
 }
 
-// fuzzTarget fuzzes a single target
+// fuzzTarget fuzzes a single target with timeout
 func (s *Scanner) fuzzTarget(target string) ([]FfufResult, error) {
+	yellow := color.New(color.FgYellow)
+
 	// Ensure target has trailing slash for directory fuzzing
 	if !strings.HasSuffix(target, "/") {
 		target = target + "/"
 	}
 
 	// Create temp output file for JSON results
-	tempFile := filepath.Join(s.OutputDir, fmt.Sprintf("ffuf-temp-%d.json", os.Getpid()))
+	tempFile := filepath.Join(s.OutputDir, fmt.Sprintf("ffuf-temp-%d-%d.json", os.Getpid(), time.Now().UnixNano()))
 	defer os.Remove(tempFile)
 
 	// Build status code filter
@@ -222,20 +228,36 @@ func (s *Scanner) fuzzTarget(target string) ([]FfufResult, error) {
 		"-s", // Silent mode
 	}
 
-	cmd := exec.Command("ffuf", args...)
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), s.Timeout)
+	defer cancel()
 
-	// Run ffuf
-	if err := cmd.Run(); err != nil {
+	// Create command with context
+	cmd := exec.CommandContext(ctx, "ffuf", args...)
+
+	// Run ffuf with timeout
+	err := cmd.Run()
+	if err != nil {
+		// Check if timeout occurred
+		if ctx.Err() == context.DeadlineExceeded {
+			yellow.Printf("    ⚠ Timeout after %v, skipping %s\n", s.Timeout, target)
+			return []FfufResult{}, nil
+		}
+
 		// ffuf returns exit code 1 if no results found, which is not an error
 		if _, statErr := os.Stat(tempFile); os.IsNotExist(statErr) {
 			return []FfufResult{}, nil
 		}
+
+		// Other errors - log and continue
+		yellow.Printf("    ⚠ Warning: %v (continuing)\n", err)
 	}
 
 	// Parse JSON output
 	results, err := s.parseFfufOutput(tempFile)
 	if err != nil {
-		return nil, err
+		yellow.Printf("    ⚠ Failed to parse results: %v (continuing)\n", err)
+		return []FfufResult{}, nil
 	}
 
 	return results, nil
