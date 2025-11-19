@@ -46,6 +46,13 @@ func (s *Scanner) Run(liveSubsFile, shodanIPsFile string) error {
 	yellow.Println("[STEP 3] Port Scanning")
 	yellow.Println("═══════════════════════════════════════════════════════")
 
+	// Check if naabu is installed
+	if _, err := exec.LookPath("naabu"); err != nil {
+		red.Println("✗ naabu not found in PATH")
+		yellow.Println("→ Please install naabu: go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest")
+		return fmt.Errorf("naabu not installed")
+	}
+
 	// Prepare targets
 	var targets []string
 
@@ -72,7 +79,16 @@ func (s *Scanner) Run(liveSubsFile, shodanIPsFile string) error {
 	if _, err := os.Stat(shodanIPsFile); err == nil {
 		ips, err := s.readLines(shodanIPsFile)
 		if err == nil {
-			targets = append(targets, ips...)
+			// Clean URLs - remove http:// and https:// prefixes
+			for _, ip := range ips {
+				cleaned := strings.TrimPrefix(ip, "http://")
+				cleaned = strings.TrimPrefix(cleaned, "https://")
+				cleaned = strings.Split(cleaned, "/")[0]
+				cleaned = strings.Split(cleaned, ":")[0] // Remove port if present
+				if cleaned != "" {
+					targets = append(targets, cleaned)
+				}
+			}
 			cyan.Printf("→ Loaded %d Shodan IPs for port scanning\n", len(ips))
 		}
 	} else {
@@ -80,6 +96,10 @@ func (s *Scanner) Run(liveSubsFile, shodanIPsFile string) error {
 	}
 
 	if len(targets) == 0 {
+		red.Println("✗ No targets found for port scanning")
+		yellow.Printf("→ Live subdomains file: %s (not found or empty)\n", liveSubsFile)
+		yellow.Printf("→ Shodan IPs file: %s (not found or empty)\n", shodanIPsFile)
+		yellow.Println("→ Ensure Step 1 (subdomain enumeration) completed successfully")
 		return fmt.Errorf("no targets found for port scanning")
 	}
 

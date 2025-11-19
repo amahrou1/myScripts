@@ -148,9 +148,20 @@ func (e *Enumerator) Run() error {
 	shodanIPs := e.getIPsFromShodan()
 	if len(shodanIPs) > 0 {
 		cyan.Printf("→ Found %d IPs from Shodan SSL certificates\n", len(shodanIPs))
-		shodanIPsFile := filepath.Join(e.OutputDir, "shodan-ips.txt")
-		if err := e.writeToFile(shodanIPsFile, shodanIPs); err == nil {
-			green.Printf("✓ Saved Shodan IPs to: %s\n", shodanIPsFile)
+
+		// Verify IPs with httpx to keep only live ones
+		cyan.Println("→ Verifying Shodan IPs with httpx...")
+		liveIPs, err := e.verifyIPsWithHttpx(shodanIPs)
+		if err != nil {
+			yellow.Printf("⚠ Error verifying IPs: %v\n", err)
+		} else if len(liveIPs) > 0 {
+			cyan.Printf("→ Found %d live IPs (with http/https)\n", len(liveIPs))
+			shodanIPsFile := filepath.Join(e.OutputDir, "shodan-ips.txt")
+			if err := e.writeToFile(shodanIPsFile, liveIPs); err == nil {
+				green.Printf("✓ Saved live Shodan IPs to: %s\n", shodanIPsFile)
+			}
+		} else {
+			cyan.Println("→ No live IPs found from Shodan")
 		}
 	} else {
 		cyan.Println("→ No IPs found from Shodan")
@@ -675,6 +686,44 @@ func (e *Enumerator) detectLiveHosts(subdomains []string) ([]string, error) {
 	}
 
 	return liveSubs, nil
+}
+
+// verifyIPsWithHttpx verifies which IPs have live HTTP/HTTPS services
+func (e *Enumerator) verifyIPsWithHttpx(ips []string) ([]string, error) {
+	cyan := color.New(color.FgCyan)
+	cyan.Printf("→ Checking %d IPs for live HTTP/HTTPS services...\n", len(ips))
+
+	// Build URLs from IPs (try both http and https)
+	var urls []string
+	for _, ip := range ips {
+		urls = append(urls, "http://"+ip)
+		urls = append(urls, "https://"+ip)
+	}
+
+	// Write URLs to temp file
+	tempFile := filepath.Join(e.OutputDir, "temp-ips.txt")
+	if err := e.writeToFile(tempFile, urls); err != nil {
+		return nil, err
+	}
+	defer os.Remove(tempFile)
+
+	// Run httpx
+	cmd := exec.Command("httpx", "-l", tempFile, "-silent")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("httpx failed: %v", err)
+	}
+
+	var liveURLs []string
+	scanner := bufio.NewScanner(strings.NewReader(string(output)))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" {
+			liveURLs = append(liveURLs, line)
+		}
+	}
+
+	return liveURLs, nil
 }
 
 // runVHostFuzzing performs virtual host fuzzing to discover hidden subdomains
