@@ -4,7 +4,7 @@ A fast, efficient, and scalable reconnaissance framework for bug bounty hunting,
 
 ## 🚀 Features
 
-### Step 1: Subdomain Enumeration (Current)
+### Step 1: Subdomain Enumeration
 
 - ✅ **Wildcard DNS Detection** - Automatically detects wildcard DNS configurations
 - ✅ **Concurrent Passive Enumeration** - Runs 8 tools simultaneously:
@@ -32,6 +32,18 @@ A fast, efficient, and scalable reconnaissance framework for bug bounty hunting,
 - ✅ **Live Progress Tracking** - Real-time colored output showing progress
 - ✅ **Organized Output** - Structured results in custom output directories
 
+### Step 2: Nuclei Vulnerability Scanning
+
+- ✅ **Automated Vulnerability Scanning** - Scans all discovered targets with Nuclei
+- ✅ **Multi-Source Scanning** - Scans both live subdomains and Shodan IPs
+- ✅ **Dual Template Support** - Uses both default and custom templates
+  - Default: `/root/nuclei-templates` (Project Discovery templates)
+  - Custom: `/root/test123` (Your custom templates)
+- ✅ **Severity Filtering** - Scans for low, medium, high, and critical vulnerabilities
+- ✅ **Real-time Output** - Shows scan progress and findings as they happen
+- ✅ **Optional -skip-nuclei flag** - Skip Nuclei scanning for faster runs
+- ✅ **Organized Results** - Saves findings to `nuclei.txt`
+
 ## 📋 Prerequisites
 
 ### Required Tools
@@ -40,7 +52,7 @@ Make sure these tools are installed and available in your PATH:
 
 ```bash
 # Check if tools are installed
-which subfinder amass assetfinder findomain massdns httpx dig ffuf shodan
+which subfinder amass assetfinder findomain massdns httpx dig ffuf shodan nuclei
 ```
 
 **Installation on Ubuntu/Debian:**
@@ -81,6 +93,11 @@ go install github.com/ffuf/ffuf@latest
 pip install shodan
 # Configure with your API key:
 shodan init YOUR_API_KEY
+
+# Nuclei (for vulnerability scanning)
+go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+# Update nuclei templates
+nuclei -update-templates
 ```
 
 ### Required Wordlists
@@ -135,6 +152,9 @@ This will create a binary at `bin/recon` (or install to `/usr/local/bin/recon`).
     Skip VHost fuzzing (faster, recommended for large scans)
     VHost fuzzing can be slow on large IP sets
 
+-skip-nuclei
+    Skip Nuclei vulnerability scanning
+
 -h
     Show help message
 ```
@@ -151,6 +171,9 @@ This will create a binary at `bin/recon` (or install to `/usr/local/bin/recon`).
 # Skip VHost fuzzing for faster results
 ./bin/recon -d example.com -o results -skip-vhost
 
+# Skip both VHost and Nuclei (fastest - subdomain enum only)
+./bin/recon -d example.com -o results -skip-vhost -skip-nuclei
+
 # After installation (system-wide)
 recon -d target.com -o /root/recon/target
 ```
@@ -163,7 +186,9 @@ After running a scan, the output directory will contain:
 results/
 ├── all-subdomains.txt      # All unique subdomains found (includes vhost results)
 ├── live-subdomains.txt     # Subdomains with live HTTP/HTTPS services
-└── vhost-subdomains.txt    # Subdomains discovered via VHost fuzzing (if any)
+├── vhost-subdomains.txt    # Subdomains discovered via VHost fuzzing (if any)
+├── shodan-ips.txt          # IPs collected from Shodan
+└── nuclei.txt              # Nuclei vulnerability scan results
 ```
 
 ### Output Files
@@ -171,6 +196,8 @@ results/
 - **all-subdomains.txt**: Complete list of unique subdomains from all sources (passive + brute force + vhost)
 - **live-subdomains.txt**: Subdomains verified to have active web services (HTTP/HTTPS)
 - **vhost-subdomains.txt**: Subdomains discovered specifically via VHost fuzzing (created only if VHost finds new results)
+- **shodan-ips.txt**: IPs collected from Shodan via SSL certificate search
+- **nuclei.txt**: Vulnerability findings from Nuclei scans (low, medium, high, critical severities)
 
 ## 🎯 Workflow
 
@@ -255,11 +282,12 @@ Edit `pkg/subdomains/subdomains.go` to modify:
 - HTTP client settings
 - Additional enumeration sources
 
-## 🚀 Coming Soon (Future Steps)
+## 🚀 Current Steps
 
 - ✅ Step 1: Subdomain Enumeration (Complete)
-- ⏳ Step 2: Nuclei Scanning
-- ⏳ Step 3: Port Scanning & Shodan Integration
+- ✅ Step 2: Nuclei Vulnerability Scanning (Complete)
+- ⏳ Step 3: Port Scanning
+-⏳ Step 4: Directory Fuzzing
 - ⏳ Step 4: Directory Fuzzing
 - ⏳ Step 5: URL Crawling
 - ⏳ Step 6: JavaScript File Collection
