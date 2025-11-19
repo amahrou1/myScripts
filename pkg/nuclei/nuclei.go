@@ -25,7 +25,7 @@ func NewScanner(outputDir string) *Scanner {
 		OutputDir:        outputDir,
 		DefaultTemplates: "/root/nuclei-templates",
 		CustomTemplates:  "/root/test123",
-		Severities:       []string{"low", "medium", "high", "critical"},
+		Severities:       []string{"medium", "high", "critical"},
 		Verbose:          true,
 	}
 }

@@ -46,6 +46,13 @@ func (s *Scanner) Run(liveSubsFile, shodanIPsFile string) error {
 	yellow.Println("[STEP 3] Port Scanning")
 	yellow.Println("═══════════════════════════════════════════════════════")
 
+	// Check if naabu is installed
+	if _, err := exec.LookPath("naabu"); err != nil {
+		red.Println("✗ naabu not found in PATH")
+		yellow.Println("→ Please install naabu: go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest")
+		return fmt.Errorf("naabu not installed")
+	}
+
 	// Prepare targets
 	var targets []string
 
@@ -80,6 +87,10 @@ func (s *Scanner) Run(liveSubsFile, shodanIPsFile string) error {
 	}
 
 	if len(targets) == 0 {
+		red.Println("✗ No targets found for port scanning")
+		yellow.Printf("→ Live subdomains file: %s (not found or empty)\n", liveSubsFile)
+		yellow.Printf("→ Shodan IPs file: %s (not found or empty)\n", shodanIPsFile)
+		yellow.Println("→ Ensure Step 1 (subdomain enumeration) completed successfully")
 		return fmt.Errorf("no targets found for port scanning")
 	}
 
