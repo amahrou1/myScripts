@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/amahrou1/myScripts/pkg/dirfuzz"
+	"github.com/amahrou1/myScripts/pkg/cloudenum"
 	"github.com/amahrou1/myScripts/pkg/nuclei"
 	"github.com/amahrou1/myScripts/pkg/portscan"
 	"github.com/amahrou1/myScripts/pkg/subdomains"
@@ -35,8 +35,8 @@ func main() {
 	domain := flag.String("d", "", "Target domain (required)")
 	output := flag.String("o", "", "Output directory (required)")
 	skipVhost := flag.Bool("skip-vhost", false, "Skip VHost fuzzing (faster)")
+	skipCloudenum := flag.Bool("skip-cloudenum", false, "Skip cloud enumeration")
 	skipPortscan := flag.Bool("skip-portscan", false, "Skip port scanning")
-	skipDirfuzz := flag.Bool("skip-dirfuzz", false, "Skip directory fuzzing")
 	skipNuclei := flag.Bool("skip-nuclei", false, "Skip Nuclei vulnerability scanning")
 	help := flag.Bool("h", false, "Show help")
 
@@ -95,6 +95,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Run Cloud Enumeration if not skipped
+	if !*skipCloudenum {
+		cloudscanner := cloudenum.NewScanner(outputDir)
+		if err := cloudscanner.Run(*domain); err != nil {
+			color.Red("\n✗ Cloud enumeration error: %v\n", err)
+			// Don't exit - cloud enum errors are not critical
+		}
+	} else {
+		yellow := color.New(color.FgYellow, color.Bold)
+		yellow.Println("\n[BONUS] Cloud Enumeration - SKIPPED (use without -skip-cloudenum to enable)")
+	}
+
 	// Run Port Scanning if not skipped
 	if !*skipPortscan {
 		portscanner := portscan.NewScanner(outputDir)
@@ -108,21 +120,6 @@ func main() {
 	} else {
 		yellow := color.New(color.FgYellow, color.Bold)
 		yellow.Println("\n[STEP 3] Port Scanning - SKIPPED (use without -skip-portscan to enable)")
-	}
-
-	// Run Directory Fuzzing if not skipped
-	if !*skipDirfuzz {
-		dirfuzzer := dirfuzz.NewScanner(outputDir)
-		liveSubsFile := filepath.Join(outputDir, "live-subdomains.txt")
-		shodanIPsFile := filepath.Join(outputDir, "shodan-ips.txt")
-
-		if err := dirfuzzer.Run(liveSubsFile, shodanIPsFile); err != nil {
-			color.Red("\n✗ Directory fuzzing error: %v\n", err)
-			// Don't exit - directory fuzzing errors are not critical
-		}
-	} else {
-		yellow := color.New(color.FgYellow, color.Bold)
-		yellow.Println("\n[STEP 4] Directory Fuzzing - SKIPPED (use without -skip-dirfuzz to enable)")
 	}
 
 	// Run Nuclei scanning if not skipped
@@ -163,10 +160,10 @@ func showHelp() {
 	white.Println("      Output directory for results")
 	white.Println("  -skip-vhost")
 	white.Println("      Skip VHost fuzzing (faster, recommended for large scans)")
+	white.Println("  -skip-cloudenum")
+	white.Println("      Skip cloud enumeration (S3, Azure, GCP)")
 	white.Println("  -skip-portscan")
 	white.Println("      Skip port scanning (top 5000 ports)")
-	white.Println("  -skip-dirfuzz")
-	white.Println("      Skip directory fuzzing")
 	white.Println("  -skip-nuclei")
 	white.Println("      Skip Nuclei vulnerability scanning")
 	white.Println("  -h")

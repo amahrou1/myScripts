@@ -2,7 +2,6 @@ package portscan
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -17,12 +16,6 @@ type Scanner struct {
 	TopPorts     int
 	ExcludePorts string
 	Verbose      bool
-}
-
-type NaabuResult struct {
-	Host string `json:"host"`
-	Port int    `json:"port"`
-	IP   string `json:"ip"`
 }
 
 // NewScanner creates a new port scanner
@@ -46,11 +39,11 @@ func (s *Scanner) Run(liveSubsFile, shodanIPsFile string) error {
 	yellow.Println("[STEP 3] Port Scanning")
 	yellow.Println("═══════════════════════════════════════════════════════")
 
-	// Check if naabu is installed
-	if _, err := exec.LookPath("naabu"); err != nil {
-		red.Println("✗ naabu not found in PATH")
-		yellow.Println("→ Please install naabu: go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest")
-		return fmt.Errorf("naabu not installed")
+	// Check if nmap is installed
+	if _, err := exec.LookPath("nmap"); err != nil {
+		red.Println("✗ nmap not found in PATH")
+		yellow.Println("→ Please install nmap: sudo apt-get install nmap")
+		return fmt.Errorf("nmap not installed")
 	}
 
 	// Prepare targets
@@ -101,27 +94,27 @@ func (s *Scanner) Run(liveSubsFile, shodanIPsFile string) error {
 	cyan.Printf("→ Total targets for port scanning: %d\n", len(targets))
 	cyan.Printf("→ Scanning top %d ports (excluding %s)\n", s.TopPorts, s.ExcludePorts)
 
-	// Create targets file for naabu
+	// Create targets file for nmap (clean hostnames/IPs without http/https)
 	targetsFile := filepath.Join(s.OutputDir, "portscan-targets.txt")
 	if err := s.writeLines(targetsFile, targets); err != nil {
 		return fmt.Errorf("failed to create targets file: %v", err)
 	}
 	defer os.Remove(targetsFile)
 
-	// Run naabu port scan
-	cyan.Println("→ Running naabu port scan (this may take a while)...")
+	// Run nmap port scan
+	cyan.Println("→ Running nmap port scan (this may take a while)...")
 
-	naabuOutput := filepath.Join(s.OutputDir, "naabu-results.json")
-	defer os.Remove(naabuOutput)
+	nmapOutput := filepath.Join(s.OutputDir, "nmap-results.gnmap")
+	defer os.Remove(nmapOutput)
 
-	if err := s.runNaabu(targetsFile, naabuOutput); err != nil {
+	if err := s.runNmap(targetsFile, nmapOutput); err != nil {
 		red.Printf("✗ Port scan error: %v\n", err)
 		return err
 	}
 
-	// Parse naabu results
+	// Parse nmap results
 	cyan.Println("→ Parsing port scan results...")
-	openPorts, err := s.parseNaabuResults(naabuOutput)
+	openPorts, err := s.parseNmapResults(nmapOutput)
 	if err != nil {
 		return fmt.Errorf("failed to parse results: %v", err)
 	}
@@ -167,22 +160,23 @@ func (s *Scanner) Run(liveSubsFile, shodanIPsFile string) error {
 	return nil
 }
 
-// runNaabu executes naabu port scanner
-func (s *Scanner) runNaabu(targetsFile, outputFile string) error {
+// runNmap executes nmap port scanner
+func (s *Scanner) runNmap(targetsFile, outputFile string) error {
 	cyan := color.New(color.FgCyan)
 
+	// Build port range (top 5000 minus excluded ports)
 	args := []string{
-		"-list", targetsFile,
-		"-tp", fmt.Sprintf("%d", s.TopPorts),
-		"-ep", s.ExcludePorts,
-		"-json",
-		"-o", outputFile,
-		"-silent",
+		"-iL", targetsFile,
+		"--top-ports", fmt.Sprintf("%d", s.TopPorts),
+		"--exclude-ports", s.ExcludePorts,
+		"-oG", outputFile,
+		"-T4", // Aggressive timing
+		"--open", // Only show open ports
 	}
 
-	cyan.Printf("→ Command: naabu %s\n", strings.Join(args, " "))
+	cyan.Printf("→ Command: nmap %s\n", strings.Join(args, " "))
 
-	cmd := exec.Command("naabu", args...)
+	cmd := exec.Command("nmap", args...)
 
 	// Stream output in real-time
 	stderr, err := cmd.StderrPipe()
@@ -190,11 +184,26 @@ func (s *Scanner) runNaabu(targetsFile, outputFile string) error {
 		return err
 	}
 
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start naabu: %v", err)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
 	}
 
-	// Print stderr (progress)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start nmap: %v", err)
+	}
+
+	// Print stdout/stderr (progress)
+	go func() {
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.Contains(line, "Nmap scan report") || strings.Contains(line, "Discovered") {
+				fmt.Println(line)
+			}
+		}
+	}()
+
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
@@ -203,14 +212,14 @@ func (s *Scanner) runNaabu(targetsFile, outputFile string) error {
 	}()
 
 	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("naabu scan failed: %v", err)
+		return fmt.Errorf("nmap scan failed: %v", err)
 	}
 
 	return nil
 }
 
-// parseNaabuResults parses JSON output from naabu
-func (s *Scanner) parseNaabuResults(outputFile string) ([]string, error) {
+// parseNmapResults parses grepable output from nmap
+func (s *Scanner) parseNmapResults(outputFile string) ([]string, error) {
 	file, err := os.Open(outputFile)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -224,14 +233,53 @@ func (s *Scanner) parseNaabuResults(outputFile string) ([]string, error) {
 	scanner := bufio.NewScanner(file)
 
 	for scanner.Scan() {
-		var result NaabuResult
-		if err := json.Unmarshal([]byte(scanner.Text()), &result); err != nil {
+		line := scanner.Text()
+
+		// Parse grepable format: Host: <ip> (<hostname>)	Ports: <port>/<state>/<proto>/<owner>/<service>/<rpcinfo>/<version>
+		if !strings.HasPrefix(line, "Host:") {
 			continue
 		}
 
-		// Format as host:port
-		hostPort := fmt.Sprintf("%s:%d", result.Host, result.Port)
-		results = append(results, hostPort)
+		// Extract host and ports
+		parts := strings.Split(line, "\t")
+		if len(parts) < 2 {
+			continue
+		}
+
+		// Get host
+		hostPart := strings.TrimPrefix(parts[0], "Host: ")
+		hostFields := strings.Fields(hostPart)
+		if len(hostFields) == 0 {
+			continue
+		}
+		host := hostFields[0]
+
+		// Get ports
+		for _, part := range parts[1:] {
+			if !strings.HasPrefix(part, "Ports:") {
+				continue
+			}
+
+			portsStr := strings.TrimPrefix(part, "Ports: ")
+			portEntries := strings.Split(portsStr, ",")
+
+			for _, entry := range portEntries {
+				entry = strings.TrimSpace(entry)
+				fields := strings.Split(entry, "/")
+				if len(fields) < 2 {
+					continue
+				}
+
+				port := fields[0]
+				state := fields[1]
+
+				// Only include open ports
+				if state == "open" {
+					hostPort := fmt.Sprintf("%s:%s", host, port)
+					results = append(results, hostPort)
+				}
+			}
+		}
 	}
 
 	return results, scanner.Err()
