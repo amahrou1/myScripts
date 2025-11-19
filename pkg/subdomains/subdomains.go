@@ -279,8 +279,8 @@ func (e *Enumerator) runPassiveEnumeration() ([]string, error) {
 			e.runPythonScript(results)
 		}()
 	} else {
-		// Send empty result if script doesn't exist
-		results <- Result{Tool: "python-enum", Error: fmt.Errorf("script not found")}
+		// Silently skip if script doesn't exist (don't report as error)
+		// No result sent - tool won't appear in output
 	}
 
 	wg.Wait()
@@ -407,13 +407,21 @@ func (e *Enumerator) runCrtSh(results chan<- Result) {
 		return
 	}
 
+	// Check if response is HTML (error page) instead of JSON
+	bodyStr := string(body)
+	if strings.HasPrefix(strings.TrimSpace(bodyStr), "<") {
+		result.Error = fmt.Errorf("rate limited or API unavailable")
+		results <- result
+		return
+	}
+
 	// Parse JSON response
 	var certs []struct {
 		NameValue string `json:"name_value"`
 	}
 
 	if err := json.Unmarshal(body, &certs); err != nil {
-		result.Error = err
+		result.Error = fmt.Errorf("invalid response format")
 		results <- result
 		return
 	}
@@ -492,23 +500,19 @@ func (e *Enumerator) runPythonScript(results chan<- Result) {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		// Silently skip if the script fails - it's not critical
-		result.Error = fmt.Errorf("failed (API issue or script error)")
-		results <- result
+		// Silently skip - don't report error
+		// The script likely has API issues or requires authentication
 		return
 	}
 
 	// Read subdomains from the temp file
 	if _, err := os.Stat(tempFile); os.IsNotExist(err) {
-		result.Error = fmt.Errorf("python script did not create output file")
-		results <- result
+		// Script didn't create output - silently skip
 		return
 	}
 
 	file, err := os.Open(tempFile)
 	if err != nil {
-		result.Error = err
-		results <- result
 		return
 	}
 	defer file.Close()
@@ -521,8 +525,11 @@ func (e *Enumerator) runPythonScript(results chan<- Result) {
 		}
 	}
 
-	result.Duration = time.Since(start)
-	results <- result
+	// Only send result if we actually found subdomains
+	if len(result.Subdomains) > 0 {
+		result.Duration = time.Since(start)
+		results <- result
+	}
 }
 
 // runBruteForce performs brute force enumeration using massdns
