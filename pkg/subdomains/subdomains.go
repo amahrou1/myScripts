@@ -149,6 +149,12 @@ func (e *Enumerator) Run() error {
 	if len(shodanIPs) > 0 {
 		cyan.Printf("→ Found %d IPs from Shodan SSL certificates\n", len(shodanIPs))
 
+		// Save all raw IPs immediately
+		shodanIPsFile := filepath.Join(e.OutputDir, "shodan-ips.txt")
+		if err := e.writeToFile(shodanIPsFile, shodanIPs); err == nil {
+			green.Printf("✓ Saved all Shodan IPs to: %s\n", shodanIPsFile)
+		}
+
 		// Verify IPs with httpx to keep only live ones
 		cyan.Println("→ Verifying Shodan IPs with httpx...")
 		liveIPs, err := e.verifyIPsWithHttpx(shodanIPs)
@@ -156,9 +162,9 @@ func (e *Enumerator) Run() error {
 			yellow.Printf("⚠ Error verifying IPs: %v\n", err)
 		} else if len(liveIPs) > 0 {
 			cyan.Printf("→ Found %d live IPs (with http/https)\n", len(liveIPs))
-			shodanIPsFile := filepath.Join(e.OutputDir, "shodan-ips.txt")
-			if err := e.writeToFile(shodanIPsFile, liveIPs); err == nil {
-				green.Printf("✓ Saved live Shodan IPs to: %s\n", shodanIPsFile)
+			shodanLiveIPsFile := filepath.Join(e.OutputDir, "shodan-live-ips.txt")
+			if err := e.writeToFile(shodanLiveIPsFile, liveIPs); err == nil {
+				green.Printf("✓ Saved live Shodan IPs to: %s\n", shodanLiveIPsFile)
 			}
 		} else {
 			cyan.Println("→ No live IPs found from Shodan")
