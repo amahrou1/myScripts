@@ -169,6 +169,7 @@ func (s *Scanner) runNmap(targetsFile, outputFile string) error {
 		"-iL", targetsFile,
 		"--top-ports", fmt.Sprintf("%d", s.TopPorts),
 		"--exclude-ports", s.ExcludePorts,
+		"-Pn", // Skip host discovery (treat all hosts as online)
 		"-oG", outputFile,
 		"-T4", // Aggressive timing
 		"--open", // Only show open ports
@@ -350,7 +351,7 @@ func (s *Scanner) readLines(filename string) ([]string, error) {
 	return lines, scanner.Err()
 }
 
-// cleanTarget removes URL schemes, paths, and ports to get clean hostname/IP for naabu
+// cleanTarget removes URL schemes, paths, and ports to get clean hostname/IP for nmap
 func (s *Scanner) cleanTarget(target string) string {
 	// Remove http:// or https://
 	cleaned := strings.TrimPrefix(target, "http://")
