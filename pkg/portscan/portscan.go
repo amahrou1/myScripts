@@ -13,7 +13,7 @@ import (
 
 type Scanner struct {
 	OutputDir    string
-	TopPorts     int
+	ScanAllPorts bool   // if true (default), scan all 65535 ports with -p-
 	ExcludePorts string
 	Verbose      bool
 }
@@ -22,7 +22,7 @@ type Scanner struct {
 func NewScanner(outputDir string) *Scanner {
 	return &Scanner{
 		OutputDir:    outputDir,
-		TopPorts:     5000,
+		ScanAllPorts: true, // Default: scan all ports
 		ExcludePorts: "80,443",
 		Verbose:      true,
 	}
@@ -92,7 +92,11 @@ func (s *Scanner) Run(liveSubsFile, shodanIPsFile string) error {
 	}
 
 	cyan.Printf("→ Total targets for port scanning: %d\n", len(targets))
-	cyan.Printf("→ Scanning top %d ports (excluding %s)\n", s.TopPorts, s.ExcludePorts)
+	if s.ScanAllPorts {
+		cyan.Printf("→ Scanning all 65535 ports (excluding %s)\n", s.ExcludePorts)
+	} else {
+		cyan.Printf("→ Scanning common ports (excluding %s)\n", s.ExcludePorts)
+	}
 
 	// Create targets file for nmap (clean hostnames/IPs without http/https)
 	targetsFile := filepath.Join(s.OutputDir, "portscan-targets.txt")
@@ -164,16 +168,26 @@ func (s *Scanner) Run(liveSubsFile, shodanIPsFile string) error {
 func (s *Scanner) runNmap(targetsFile, outputFile string) error {
 	cyan := color.New(color.FgCyan)
 
-	// Build port range (top 5000 minus excluded ports)
+	// Build nmap arguments
 	args := []string{
 		"-iL", targetsFile,
-		"--top-ports", fmt.Sprintf("%d", s.TopPorts),
-		"--exclude-ports", s.ExcludePorts,
-		"-Pn", // Skip host discovery (treat all hosts as online)
-		"-oG", outputFile,
-		"-T4", // Aggressive timing
-		"--open", // Only show open ports
 	}
+
+	// Add port scan range
+	if s.ScanAllPorts {
+		args = append(args, "-p-") // Scan all 65535 ports
+	} else {
+		args = append(args, "--top-ports", "1000") // Fallback: top 1000 ports
+	}
+
+	// Add remaining arguments
+	args = append(args,
+		"--exclude-ports", s.ExcludePorts,
+		"-Pn",     // Skip host discovery (treat all hosts as online)
+		"-oG", outputFile,
+		"-T4",     // Aggressive timing
+		"--open",  // Only show open ports
+	)
 
 	cyan.Printf("→ Command: nmap %s\n", strings.Join(args, " "))
 

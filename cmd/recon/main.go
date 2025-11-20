@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/amahrou1/myScripts/pkg/nuclei"
 	"github.com/amahrou1/myScripts/pkg/portscan"
 	"github.com/amahrou1/myScripts/pkg/subdomains"
+	"github.com/amahrou1/myScripts/pkg/urlcrawl"
 	"github.com/fatih/color"
 )
 
@@ -35,6 +37,7 @@ func main() {
 	domain := flag.String("d", "", "Target domain (required)")
 	output := flag.String("o", "", "Output directory (required)")
 	skipVhost := flag.Bool("skip-vhost", false, "Skip VHost fuzzing (faster)")
+	skipUrlcrawl := flag.Bool("skip-urlcrawl", false, "Skip URL crawling")
 	skipCloudenum := flag.Bool("skip-cloudenum", false, "Skip cloud enumeration")
 	skipPortscan := flag.Bool("skip-portscan", false, "Skip port scanning")
 	skipNuclei := flag.Bool("skip-nuclei", false, "Skip Nuclei vulnerability scanning")
@@ -95,6 +98,20 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Run URL Crawling if not skipped
+	if !*skipUrlcrawl {
+		urlscanner := urlcrawl.NewScanner(outputDir)
+		liveSubsFile := filepath.Join(outputDir, "live-subdomains.txt")
+
+		if err := urlscanner.Run(liveSubsFile); err != nil {
+			color.Red("\n✗ URL crawling error: %v\n", err)
+			// Don't exit - URL crawling errors are not critical
+		}
+	} else {
+		yellow := color.New(color.FgYellow, color.Bold)
+		yellow.Println("\n[STEP 2] URL Crawling - SKIPPED (use without -skip-urlcrawl to enable)")
+	}
+
 	// Run Cloud Enumeration if not skipped
 	if !*skipCloudenum {
 		cloudscanner := cloudenum.NewScanner(outputDir)
@@ -124,6 +141,7 @@ func main() {
 
 	// Run Nuclei scanning if not skipped
 	if !*skipNuclei {
+		// Scan subdomains with default templates
 		scanner := nuclei.NewScanner(outputDir)
 		liveSubsFile := filepath.Join(outputDir, "live-subdomains.txt")
 		shodanIPsFile := filepath.Join(outputDir, "shodan-ips.txt")
@@ -131,6 +149,11 @@ func main() {
 		if err := scanner.Run(liveSubsFile, shodanIPsFile); err != nil {
 			color.Red("\n✗ Nuclei error: %v\n", err)
 			// Don't exit - Nuclei errors are not critical
+		}
+
+		// Run Nuclei on URL crawling results if they exist
+		if !*skipUrlcrawl {
+			runURLNucleiScans(outputDir)
 		}
 	} else {
 		yellow := color.New(color.FgYellow, color.Bold)
@@ -144,6 +167,62 @@ func main() {
 	green.Println("╚═══════════════════════════════════════════════════════════════╝")
 	yellow.Printf("  Total Duration: %s\n", formatDuration(duration))
 	green.Printf("\n✓ Results saved in: %s\n\n", outputDir)
+}
+
+// runURLNucleiScans runs Nuclei scans on URL crawling results
+func runURLNucleiScans(outputDir string) {
+	green := color.New(color.FgGreen, color.Bold)
+	yellow := color.New(color.FgYellow, color.Bold)
+	cyan := color.New(color.FgCyan, color.Bold)
+	red := color.New(color.FgRed, color.Bold)
+
+	yellow.Println("\n═══════════════════════════════════════════════════════════════")
+	yellow.Println("[STEP 5] Nuclei Scanning - URL Crawling Results")
+	yellow.Println("═══════════════════════════════════════════════════════════════")
+
+	// Scan params.txt with fuzzing templates
+	paramsFile := filepath.Join(outputDir, "params.txt")
+	if _, err := os.Stat(paramsFile); err == nil {
+		cyan.Println("\n→ Scanning parameter URLs with fuzzing templates...")
+		fuzzResultsFile := filepath.Join(outputDir, "fuzzing-nuclei-result.txt")
+
+		cmd := exec.Command("nuclei",
+			"-l", paramsFile,
+			"-t", "/root/fuzz/",
+			"-o", fuzzResultsFile,
+		)
+
+		if err := cmd.Run(); err != nil {
+			red.Printf("✗ Nuclei fuzzing scan error: %v\n", err)
+		} else {
+			green.Printf("✓ Fuzzing scan complete, results saved to: %s\n", fuzzResultsFile)
+		}
+	} else {
+		cyan.Println("→ No parameter URLs found, skipping fuzzing scan")
+	}
+
+	// Scan live-js.txt with exposure templates
+	jsFile := filepath.Join(outputDir, "live-js.txt")
+	if _, err := os.Stat(jsFile); err == nil {
+		cyan.Println("\n→ Scanning JavaScript files with exposure templates...")
+		jsResultsFile := filepath.Join(outputDir, "js-nuclei-result.txt")
+
+		cmd := exec.Command("nuclei",
+			"-l", jsFile,
+			"-t", "/root/nuclei-templates/http/exposures/",
+			"-o", jsResultsFile,
+		)
+
+		if err := cmd.Run(); err != nil {
+			red.Printf("✗ Nuclei JS scan error: %v\n", err)
+		} else {
+			green.Printf("✓ JS exposure scan complete, results saved to: %s\n", jsResultsFile)
+		}
+	} else {
+		cyan.Println("→ No JavaScript files found, skipping JS exposure scan")
+	}
+
+	yellow.Println("═══════════════════════════════════════════════════════════════")
 }
 
 func showHelp() {
@@ -160,10 +239,12 @@ func showHelp() {
 	white.Println("      Output directory for results")
 	white.Println("  -skip-vhost")
 	white.Println("      Skip VHost fuzzing (faster, recommended for large scans)")
+	white.Println("  -skip-urlcrawl")
+	white.Println("      Skip URL crawling and discovery")
 	white.Println("  -skip-cloudenum")
 	white.Println("      Skip cloud enumeration (S3, Azure, GCP)")
 	white.Println("  -skip-portscan")
-	white.Println("      Skip port scanning (top 5000 ports)")
+	white.Println("      Skip port scanning (all 65535 ports)")
 	white.Println("  -skip-nuclei")
 	white.Println("      Skip Nuclei vulnerability scanning")
 	white.Println("  -h")
@@ -186,13 +267,27 @@ func showHelp() {
 	white.Println("  ./recon -d example.com -o results -skip-vhost -skip-portscan -skip-nuclei")
 
 	yellow.Println("\nOUTPUT FILES:")
-	white.Println("  all-subdomains.txt   - All discovered subdomains (unique)")
-	white.Println("  live-subdomains.txt  - Subdomains with live HTTP/HTTPS services")
+	white.Println("  all-subdomains.txt          - All discovered subdomains (unique)")
+	white.Println("  live-subdomains.txt         - Subdomains with live HTTP/HTTPS services")
+	white.Println("  shodan-ips.txt              - All IPs from Shodan SSL certificates")
+	white.Println("  shodan-live-ips.txt         - Live Shodan IPs with HTTP/HTTPS")
+	white.Println("  unique-urls.txt             - All unique URLs from crawling")
+	white.Println("  params.txt                  - Live URLs with parameters")
+	white.Println("  live-js.txt                 - Live JavaScript files")
+	white.Println("  sensitive-files.txt         - Sensitive files (.env, .json, etc.)")
+	white.Println("  open-ports.txt              - Open ports (verified with httpx)")
+	white.Println("  cloud-resources.txt         - Discovered cloud resources")
+	white.Println("  nuclei-results.txt          - Nuclei vulnerability scan results")
+	white.Println("  fuzzing-nuclei-result.txt   - Nuclei fuzzing results (params)")
+	white.Println("  js-nuclei-result.txt        - Nuclei JS exposure results")
 
 	yellow.Println("\nTOOLS USED:")
-	white.Println("  • Passive: subfinder, amass, assetfinder, findomain")
-	white.Println("  • Active: massdns (if no wildcard)")
+	white.Println("  • Subdomain Discovery: subfinder, amass, assetfinder, findomain, massdns")
+	white.Println("  • URL Crawling: waybackurls, gau, katana, waymore, gospider")
+	white.Println("  • Cloud Enumeration: slurp, cloud_enum")
+	white.Println("  • Port Scanning: nmap")
 	white.Println("  • Verification: httpx")
+	white.Println("  • Vulnerability Scanning: nuclei")
 
 	fmt.Println()
 }
