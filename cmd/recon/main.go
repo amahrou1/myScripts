@@ -13,6 +13,7 @@ import (
 	"github.com/amahrou1/myScripts/pkg/portscan"
 	"github.com/amahrou1/myScripts/pkg/subdomains"
 	"github.com/amahrou1/myScripts/pkg/urlcrawl"
+	"github.com/amahrou1/myScripts/pkg/vulnscan"
 	"github.com/fatih/color"
 )
 
@@ -38,6 +39,7 @@ func main() {
 	output := flag.String("o", "", "Output directory (required)")
 	skipVhost := flag.Bool("skip-vhost", false, "Skip VHost fuzzing (faster)")
 	skipUrlcrawl := flag.Bool("skip-urlcrawl", false, "Skip URL crawling")
+	skipVulnscan := flag.Bool("skip-vulnscan", false, "Skip vulnerability scanning (XSS & SQLi)")
 	skipCloudenum := flag.Bool("skip-cloudenum", false, "Skip cloud enumeration")
 	skipPortscan := flag.Bool("skip-portscan", false, "Skip port scanning")
 	skipNuclei := flag.Bool("skip-nuclei", false, "Skip Nuclei vulnerability scanning")
@@ -110,6 +112,21 @@ func main() {
 	} else {
 		yellow := color.New(color.FgYellow, color.Bold)
 		yellow.Println("\n[STEP 2] URL Crawling - SKIPPED (use without -skip-urlcrawl to enable)")
+	}
+
+	// Run Vulnerability Scanning if not skipped
+	if !*skipVulnscan && !*skipUrlcrawl {
+		vulnscanner := vulnscan.NewScanner(outputDir)
+		paramsFile := filepath.Join(outputDir, "params.txt")
+		jsFile := filepath.Join(outputDir, "live-js.txt")
+
+		if err := vulnscanner.Run(paramsFile, jsFile); err != nil {
+			color.Red("\n✗ Vulnerability scanning error: %v\n", err)
+			// Don't exit - vulnerability scanning errors are not critical
+		}
+	} else if *skipVulnscan {
+		yellow := color.New(color.FgYellow, color.Bold)
+		yellow.Println("\n[STEP 2.5] Vulnerability Scanning - SKIPPED (use without -skip-vulnscan to enable)")
 	}
 
 	// Run Cloud Enumeration if not skipped
@@ -241,6 +258,8 @@ func showHelp() {
 	white.Println("      Skip VHost fuzzing (faster, recommended for large scans)")
 	white.Println("  -skip-urlcrawl")
 	white.Println("      Skip URL crawling and discovery")
+	white.Println("  -skip-vulnscan")
+	white.Println("      Skip vulnerability scanning (XSS & SQLi)")
 	white.Println("  -skip-cloudenum")
 	white.Println("      Skip cloud enumeration (S3, Azure, GCP)")
 	white.Println("  -skip-portscan")
@@ -275,6 +294,13 @@ func showHelp() {
 	white.Println("  params.txt                  - Live URLs with parameters")
 	white.Println("  live-js.txt                 - Live JavaScript files")
 	white.Println("  sensitive-files.txt         - Sensitive files (.env, .json, etc.)")
+	white.Println("  params-filtered-xss.txt     - XSS candidate URLs (filtered with gf)")
+	white.Println("  params-filtered-sqli.txt    - SQLi candidate URLs (filtered with gf)")
+	white.Println("  kxss-results.txt            - kxss scan results (potential XSS)")
+	white.Println("  xss-vulnerable.txt          - Confirmed XSS vulnerabilities (dalfox)")
+	white.Println("  ghauri-results.txt          - Ghauri SQLi scan results")
+	white.Println("  ghauri-vulnerable-urls.txt  - Confirmed SQLi vulnerabilities (ghauri)")
+	white.Println("  sqlmap-results.txt          - SQLmap confirmation results")
 	white.Println("  open-ports.txt              - Open ports (verified with httpx)")
 	white.Println("  cloud-resources.txt         - Discovered cloud resources")
 	white.Println("  nuclei-results.txt          - Nuclei vulnerability scan results")
@@ -284,10 +310,11 @@ func showHelp() {
 	yellow.Println("\nTOOLS USED:")
 	white.Println("  • Subdomain Discovery: subfinder, amass, assetfinder, findomain, massdns")
 	white.Println("  • URL Crawling: waybackurls, gau, katana, waymore, gospider")
+	white.Println("  • Vulnerability Scanning: gf, kxss, dalfox, ghauri, sqlmap")
 	white.Println("  • Cloud Enumeration: slurp, cloud_enum")
 	white.Println("  • Port Scanning: nmap")
 	white.Println("  • Verification: httpx")
-	white.Println("  • Vulnerability Scanning: nuclei")
+	white.Println("  • Template Scanning: nuclei")
 
 	fmt.Println()
 }
