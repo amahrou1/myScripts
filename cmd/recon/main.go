@@ -244,7 +244,7 @@ func showHelp() {
 	white.Println("  -skip-cloudenum")
 	white.Println("      Skip cloud enumeration (S3, Azure, GCP)")
 	white.Println("  -skip-portscan")
-	white.Println("      Skip port scanning (all 65535 ports)")
+	white.Println("      Skip port scanning (top 1000 ports)")
 	white.Println("  -skip-nuclei")
 	white.Println("      Skip Nuclei vulnerability scanning")
 	white.Println("  -h")
