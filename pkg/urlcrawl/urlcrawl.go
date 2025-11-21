@@ -207,24 +207,37 @@ func (s *Scanner) checkTools() error {
 func (s *Scanner) runAllTools(subdomains []string, tempDir string) ([]string, error) {
 	cyan := color.New(color.FgCyan)
 	yellow := color.New(color.FgYellow)
+	green := color.New(color.FgGreen)
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	allURLs := []string{}
+	completedTools := 0
+	totalTools := 7 // waybackurls, gau, katana, katana-params, waymore, gospider, webarchive-cdx
 
 	// Tool runner helper
 	runTool := func(name string, runner func() ([]string, error)) {
 		defer wg.Done()
 		cyan.Printf("  → Running %s...\n", name)
 		urls, err := runner()
+
+		mu.Lock()
+		completedTools++
+		progress := (completedTools * 100) / totalTools
+		mu.Unlock()
+
 		if err != nil {
 			yellow.Printf("  ⚠ %s failed, skipping: %v\n", name, err)
+			cyan.Printf("  → Overall progress: %d%% (%d/%d tools completed)\n", progress, completedTools, totalTools)
 			return
 		}
+
 		mu.Lock()
 		allURLs = append(allURLs, urls...)
 		mu.Unlock()
-		cyan.Printf("  ✓ %s: found %d URLs\n", name, len(urls))
+
+		green.Printf("  ✓ %s: found %d URLs\n", name, len(urls))
+		cyan.Printf("  → Overall progress: %d%% (%d/%d tools completed)\n", progress, completedTools, totalTools)
 	}
 
 	// Run waybackurls

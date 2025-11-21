@@ -13,7 +13,7 @@ import (
 
 type Scanner struct {
 	OutputDir    string
-	ScanAllPorts bool   // if true (default), scan all 65535 ports with -p-
+	TopPorts     int    // Number of top ports to scan (default: 1000)
 	ExcludePorts string
 	Verbose      bool
 }
@@ -22,7 +22,7 @@ type Scanner struct {
 func NewScanner(outputDir string) *Scanner {
 	return &Scanner{
 		OutputDir:    outputDir,
-		ScanAllPorts: true, // Default: scan all ports
+		TopPorts:     1000, // Default: scan top 1000 ports (fast and practical)
 		ExcludePorts: "80,443",
 		Verbose:      true,
 	}
@@ -92,11 +92,8 @@ func (s *Scanner) Run(liveSubsFile, shodanIPsFile string) error {
 	}
 
 	cyan.Printf("→ Total targets for port scanning: %d\n", len(targets))
-	if s.ScanAllPorts {
-		cyan.Printf("→ Scanning all 65535 ports (excluding %s)\n", s.ExcludePorts)
-	} else {
-		cyan.Printf("→ Scanning common ports (excluding %s)\n", s.ExcludePorts)
-	}
+	cyan.Printf("→ Scanning top %d ports (excluding %s)\n", s.TopPorts, s.ExcludePorts)
+	cyan.Printf("→ Progress: 0%% complete\n")
 
 	// Create targets file for nmap (clean hostnames/IPs without http/https)
 	targetsFile := filepath.Join(s.OutputDir, "portscan-targets.txt")
@@ -171,23 +168,14 @@ func (s *Scanner) runNmap(targetsFile, outputFile string) error {
 	// Build nmap arguments
 	args := []string{
 		"-iL", targetsFile,
-	}
-
-	// Add port scan range
-	if s.ScanAllPorts {
-		args = append(args, "-p-") // Scan all 65535 ports
-	} else {
-		args = append(args, "--top-ports", "1000") // Fallback: top 1000 ports
-	}
-
-	// Add remaining arguments
-	args = append(args,
+		"--top-ports", fmt.Sprintf("%d", s.TopPorts),
 		"--exclude-ports", s.ExcludePorts,
 		"-Pn",     // Skip host discovery (treat all hosts as online)
 		"-oG", outputFile,
 		"-T4",     // Aggressive timing
 		"--open",  // Only show open ports
-	)
+		"--stats-every", "30s", // Show progress every 30 seconds
+	}
 
 	cyan.Printf("→ Command: nmap %s\n", strings.Join(args, " "))
 
@@ -213,7 +201,11 @@ func (s *Scanner) runNmap(targetsFile, outputFile string) error {
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
 			line := scanner.Text()
-			if strings.Contains(line, "Nmap scan report") || strings.Contains(line, "Discovered") {
+			// Show scan reports, discovered ports, and progress stats
+			if strings.Contains(line, "Nmap scan report") ||
+			   strings.Contains(line, "Discovered") ||
+			   strings.Contains(line, "Stats:") ||
+			   strings.Contains(line, "elapsed") {
 				fmt.Println(line)
 			}
 		}
@@ -222,7 +214,13 @@ func (s *Scanner) runNmap(targetsFile, outputFile string) error {
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
-			fmt.Println(scanner.Text())
+			line := scanner.Text()
+			// Show progress percentage and timing info
+			if strings.Contains(line, "done") ||
+			   strings.Contains(line, "remaining") ||
+			   strings.Contains(line, "%") {
+				fmt.Println(line)
+			}
 		}
 	}()
 
