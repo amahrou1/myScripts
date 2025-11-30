@@ -186,9 +186,25 @@ func main() {
 		urlscanner := urlcrawl.NewScanner(outputDir)
 		liveSubsFile := filepath.Join(outputDir, "live-subdomains.txt")
 
-		// Apply config settings
+		// Apply config settings - global phase timeout
+		urlscanner.PhaseTimeout = cfg.URLCrawlingTimeout
+
+		// Apply individual tool timeouts
+		urlscanner.WaybackurlsTimeout = cfg.WaybackurlsTimeout
+		urlscanner.GauTimeout = cfg.GauTimeout
+		urlscanner.KatanaTimeout = cfg.KatanaTimeout
+		urlscanner.KatanaParamsTimeout = cfg.KatanaParamsTimeout
 		urlscanner.WaymoreTimeout = cfg.WaymoreTimeout
+		urlscanner.GospiderTimeout = cfg.GospiderTimeout
+		urlscanner.WebArchiveTimeout = cfg.WebArchiveTimeout
+
+		// Apply domain limits
 		urlscanner.WaymoreMaxDomains = cfg.WaymoreMaxDomains
+		urlscanner.GauMaxDomains = cfg.GauMaxDomains
+		urlscanner.KatanaMaxDomains = cfg.KatanaMaxDomains
+		urlscanner.GospiderMaxDomains = cfg.GospiderMaxDomains
+
+		// Apply API keys
 		urlscanner.VirusTotalKey = cfg.VirusTotalKey
 		urlscanner.OTXKey = cfg.AlienVaultKey
 
