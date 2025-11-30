@@ -21,19 +21,49 @@ type Scanner struct {
 	EnableActive      bool
 	GospiderThreads   int
 	Verbose           bool
-	WaymoreTimeout    int // timeout in minutes
-	WaymoreMaxDomains int // max domains to process
+
+	// Global timeout for entire URL crawling phase
+	PhaseTimeout int // timeout in minutes for entire phase
+
+	// Individual tool timeouts
+	WaybackurlsTimeout  int
+	GauTimeout          int
+	KatanaTimeout       int
+	KatanaParamsTimeout int
+	WaymoreTimeout      int
+	GospiderTimeout     int
+	WebArchiveTimeout   int
+
+	// Domain limits
+	WaymoreMaxDomains  int
+	GauMaxDomains      int
+	KatanaMaxDomains   int
+	GospiderMaxDomains int
 }
 
 // NewScanner creates a new URL crawler
 func NewScanner(outputDir string) *Scanner {
 	return &Scanner{
-		OutputDir:         outputDir,
-		EnableActive:      true, // katana enabled by default
-		GospiderThreads:   10,   // reasonable concurrency
-		Verbose:           true,
-		WaymoreTimeout:    10,  // 10 minutes default
-		WaymoreMaxDomains: 100, // process max 100 domains
+		OutputDir:       outputDir,
+		EnableActive:    true, // katana enabled by default
+		GospiderThreads: 10,   // reasonable concurrency
+		Verbose:         true,
+
+		// Default timeouts (10 hours for phase, various for tools)
+		PhaseTimeout:        600, // 10 hours
+		WaybackurlsTimeout:  30,
+		GauTimeout:          30,
+		KatanaTimeout:       60,
+		KatanaParamsTimeout: 60,
+		WaymoreTimeout:      10,
+		GospiderTimeout:     60,
+		WebArchiveTimeout:   30,
+
+		// Default domain limits
+		WaymoreMaxDomains:  100,
+		GauMaxDomains:      200,
+		KatanaMaxDomains:   150,
+		GospiderMaxDomains: 100,
 	}
 }
 
@@ -87,11 +117,44 @@ func (s *Scanner) Run(liveSubsFile string) error {
 	}
 	defer os.RemoveAll(tempDir) // Clean up temp files
 
-	// Run all tools in parallel with error handling
-	cyan.Println("\n→ Running URL discovery tools (this may take a while)...")
-	allURLs, err := s.runAllTools(subdomains, tempDir)
-	if err != nil {
-		return err
+	// Create context with global phase timeout
+	var allURLs []string
+	if s.PhaseTimeout > 0 {
+		phaseTimeout := time.Duration(s.PhaseTimeout) * time.Minute
+		ctx, cancel := context.WithTimeout(context.Background(), phaseTimeout)
+		defer cancel()
+
+		cyan.Printf("\n→ Running URL discovery tools (max %d minutes for entire phase)...\n", s.PhaseTimeout)
+
+		// Run with timeout
+		done := make(chan struct{})
+		var toolErr error
+		go func() {
+			allURLs, toolErr = s.runAllTools(subdomains, tempDir)
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			// Completed normally
+			if toolErr != nil {
+				return toolErr
+			}
+		case <-ctx.Done():
+			// Timeout occurred
+			yellow.Printf("\n⚠ URL crawling phase timed out after %d minutes\n", s.PhaseTimeout)
+			yellow.Println("  Continuing with partial results...")
+			// Wait a bit for cleanup
+			time.Sleep(2 * time.Second)
+		}
+	} else {
+		// No timeout
+		cyan.Println("\n→ Running URL discovery tools (this may take a while)...")
+		var toolErr error
+		allURLs, toolErr = s.runAllTools(subdomains, tempDir)
+		if toolErr != nil {
+			return toolErr
+		}
 	}
 
 	if len(allURLs) == 0 {
@@ -297,7 +360,7 @@ func (s *Scanner) runAllTools(subdomains []string, tempDir string) ([]string, er
 	return allURLs, nil
 }
 
-// runWaybackurls runs waybackurls on subdomains
+// runWaybackurls runs waybackurls on subdomains with timeout
 func (s *Scanner) runWaybackurls(subdomains []string, tempDir string) ([]string, error) {
 	outputFile := filepath.Join(tempDir, "waybackurls.txt")
 	file, err := os.Create(outputFile)
@@ -306,32 +369,54 @@ func (s *Scanner) runWaybackurls(subdomains []string, tempDir string) ([]string,
 	}
 	defer file.Close()
 
-	for _, subdomain := range subdomains {
-		// Remove http/https prefix for waybackurls
-		domain := strings.TrimPrefix(subdomain, "https://")
-		domain = strings.TrimPrefix(domain, "http://")
-		domain = strings.Split(domain, "/")[0] // Remove path
+	// Create context with timeout
+	timeout := time.Duration(s.WaybackurlsTimeout) * time.Minute
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 
-		cmd := exec.Command("waybackurls", domain)
-		output, err := cmd.Output()
-		if err != nil {
-			continue // Skip failed domains
+	// Process domains with timeout
+	done := make(chan struct{})
+	go func() {
+		for _, subdomain := range subdomains {
+			// Check if context is cancelled
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			// Remove http/https prefix for waybackurls
+			domain := strings.TrimPrefix(subdomain, "https://")
+			domain = strings.TrimPrefix(domain, "http://")
+			domain = strings.Split(domain, "/")[0]
+
+			cmd := exec.CommandContext(ctx, "waybackurls", domain)
+			output, err := cmd.Output()
+			if err != nil {
+				continue
+			}
+			file.Write(output)
 		}
-		file.Write(output)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Completed normally
+	case <-ctx.Done():
+		// Timeout occurred - return partial results
+		yellow := color.New(color.FgYellow)
+		yellow.Printf("  ⚠ waybackurls timed out after %d minutes\n", s.WaybackurlsTimeout)
 	}
 
+	file.Close()
 	return s.readLines(outputFile)
 }
 
-// runGau runs gau on subdomains with API keys
+// runGau runs gau on subdomains with API keys and timeout
 func (s *Scanner) runGau(subdomains []string, tempDir string) ([]string, error) {
 	outputFile := filepath.Join(tempDir, "gau.txt")
-
-	// Create temp input file
 	inputFile := filepath.Join(tempDir, "gau-input.txt")
-	if err := s.writeLines(inputFile, subdomains); err != nil {
-		return nil, err
-	}
 
 	// Clean domains (remove http/https)
 	cleanDomains := []string{}
@@ -342,11 +427,23 @@ func (s *Scanner) runGau(subdomains []string, tempDir string) ([]string, error) 
 		cleanDomains = append(cleanDomains, domain)
 	}
 
+	// Limit domains for gau
+	if s.GauMaxDomains > 0 && len(cleanDomains) > s.GauMaxDomains {
+		yellow := color.New(color.FgYellow)
+		yellow.Printf("  → Limiting gau to first %d domains (out of %d)\n", s.GauMaxDomains, len(cleanDomains))
+		cleanDomains = cleanDomains[:s.GauMaxDomains]
+	}
+
 	if err := s.writeLines(inputFile, cleanDomains); err != nil {
 		return nil, err
 	}
 
-	cmd := exec.Command("gau",
+	// Create context with timeout
+	timeout := time.Duration(s.GauTimeout) * time.Minute
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "gau",
 		"--subs",
 		"--providers", "wayback,otx,commoncrawl,urlscan",
 		"--o", outputFile,
@@ -365,23 +462,46 @@ func (s *Scanner) runGau(subdomains []string, tempDir string) ([]string, error) 
 	// Read domains from stdin
 	cmd.Stdin = strings.NewReader(strings.Join(cleanDomains, "\n"))
 
-	if err := cmd.Run(); err != nil {
+	err := cmd.Run()
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			yellow := color.New(color.FgYellow)
+			yellow.Printf("  ⚠ gau timed out after %d minutes\n", s.GauTimeout)
+			// Return partial results
+			if _, statErr := os.Stat(outputFile); statErr == nil {
+				return s.readLines(outputFile)
+			}
+			return []string{}, nil
+		}
 		return nil, err
 	}
 
 	return s.readLines(outputFile)
 }
 
-// runKatana runs katana for active crawling
+// runKatana runs katana for active crawling with timeout
 func (s *Scanner) runKatana(subdomains []string, tempDir string) ([]string, error) {
 	outputFile := filepath.Join(tempDir, "katana.txt")
 	inputFile := filepath.Join(tempDir, "katana-input.txt")
 
-	if err := s.writeLines(inputFile, subdomains); err != nil {
+	// Limit domains for katana
+	limitedSubdomains := subdomains
+	if s.KatanaMaxDomains > 0 && len(subdomains) > s.KatanaMaxDomains {
+		yellow := color.New(color.FgYellow)
+		yellow.Printf("  → Limiting katana to first %d domains (out of %d)\n", s.KatanaMaxDomains, len(subdomains))
+		limitedSubdomains = subdomains[:s.KatanaMaxDomains]
+	}
+
+	if err := s.writeLines(inputFile, limitedSubdomains); err != nil {
 		return nil, err
 	}
 
-	cmd := exec.Command("katana",
+	// Create context with timeout
+	timeout := time.Duration(s.KatanaTimeout) * time.Minute
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "katana",
 		"-list", inputFile,
 		"-duc",    // disable update check
 		"-silent",
@@ -390,36 +510,65 @@ func (s *Scanner) runKatana(subdomains []string, tempDir string) ([]string, erro
 		"-kf",     // known files
 		"-fx",     // form extraction
 		"-xhr",    // xhr requests
-		"-ef", "woff,css,png,svg,jpg,woff2,jpeg,gif,svg", // exclude extensions
+		"-ef", "woff,css,png,svg,jpg,woff2,jpeg,gif,svg",
 		"-o", outputFile,
 	)
 
-	if err := cmd.Run(); err != nil {
+	err := cmd.Run()
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			yellow := color.New(color.FgYellow)
+			yellow.Printf("  ⚠ katana timed out after %d minutes\n", s.KatanaTimeout)
+			if _, statErr := os.Stat(outputFile); statErr == nil {
+				return s.readLines(outputFile)
+			}
+			return []string{}, nil
+		}
 		return nil, err
 	}
 
 	return s.readLines(outputFile)
 }
 
-// runKatanaParams runs katana for parameter discovery
+// runKatanaParams runs katana for parameter discovery with timeout
 func (s *Scanner) runKatanaParams(subdomains []string, tempDir string) ([]string, error) {
 	outputFile := filepath.Join(tempDir, "katana-params.txt")
 	inputFile := filepath.Join(tempDir, "katana-params-input.txt")
 
-	if err := s.writeLines(inputFile, subdomains); err != nil {
+	// Limit domains for katana-params
+	limitedSubdomains := subdomains
+	if s.KatanaMaxDomains > 0 && len(subdomains) > s.KatanaMaxDomains {
+		limitedSubdomains = subdomains[:s.KatanaMaxDomains]
+	}
+
+	if err := s.writeLines(inputFile, limitedSubdomains); err != nil {
 		return nil, err
 	}
 
-	cmd := exec.Command("katana",
+	// Create context with timeout
+	timeout := time.Duration(s.KatanaParamsTimeout) * time.Minute
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "katana",
 		"-list", inputFile,
-		"-fs", "fqdn",  // field scope
-		"-f", "qurl",   // field format
-		"-jc",          // javascript crawling
-		"-d", "6",      // depth
+		"-fs", "fqdn",
+		"-f", "qurl",
+		"-jc",
+		"-d", "6",
 		"-o", outputFile,
 	)
 
-	if err := cmd.Run(); err != nil {
+	err := cmd.Run()
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			yellow := color.New(color.FgYellow)
+			yellow.Printf("  ⚠ katana-params timed out after %d minutes\n", s.KatanaParamsTimeout)
+			if _, statErr := os.Stat(outputFile); statErr == nil {
+				return s.readLines(outputFile)
+			}
+			return []string{}, nil
+		}
 		return nil, err
 	}
 
@@ -485,7 +634,7 @@ func (s *Scanner) runWaymore(subdomains []string, tempDir string) ([]string, err
 	return s.readLines(outputFile)
 }
 
-// runGospider runs gospider for spidering
+// runGospider runs gospider for spidering with timeout
 func (s *Scanner) runGospider(subdomains []string, tempDir string) ([]string, error) {
 	outputFile := filepath.Join(tempDir, "gospider.txt")
 	file, err := os.Create(outputFile)
@@ -494,24 +643,44 @@ func (s *Scanner) runGospider(subdomains []string, tempDir string) ([]string, er
 	}
 	defer file.Close()
 
+	// Limit domains for gospider
+	limitedSubdomains := subdomains
+	if s.GospiderMaxDomains > 0 && len(subdomains) > s.GospiderMaxDomains {
+		yellow := color.New(color.FgYellow)
+		yellow.Printf("  → Limiting gospider to first %d domains (out of %d)\n", s.GospiderMaxDomains, len(subdomains))
+		limitedSubdomains = subdomains[:s.GospiderMaxDomains]
+	}
+
+	// Create context with timeout
+	timeout := time.Duration(s.GospiderTimeout) * time.Minute
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
 	// Run gospider with limited concurrency
 	semaphore := make(chan struct{}, s.GospiderThreads)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
-	for _, subdomain := range subdomains {
+	for _, subdomain := range limitedSubdomains {
+		// Check if context is cancelled
+		select {
+		case <-ctx.Done():
+			break
+		default:
+		}
+
 		wg.Add(1)
-		semaphore <- struct{}{} // Acquire
+		semaphore <- struct{}{}
 
 		go func(sub string) {
 			defer wg.Done()
-			defer func() { <-semaphore }() // Release
+			defer func() { <-semaphore }()
 
-			cmd := exec.Command("gospider",
-				"-a",      // all sources
+			cmd := exec.CommandContext(ctx, "gospider",
+				"-a",
 				"-s", sub,
-				"-d", "2", // depth 2
-				"-t", "10", // timeout 10s
+				"-d", "2",
+				"-t", "10",
 			)
 
 			output, err := cmd.Output()
@@ -523,7 +692,6 @@ func (s *Scanner) runGospider(subdomains []string, tempDir string) ([]string, er
 			scanner := bufio.NewScanner(strings.NewReader(string(output)))
 			for scanner.Scan() {
 				line := scanner.Text()
-				// gospider format: [URL] - URL
 				if strings.Contains(line, "http") {
 					parts := strings.Fields(line)
 					for _, part := range parts {
@@ -538,13 +706,27 @@ func (s *Scanner) runGospider(subdomains []string, tempDir string) ([]string, er
 		}(subdomain)
 	}
 
-	wg.Wait()
-	file.Close()
+	// Wait with timeout awareness
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
 
+	select {
+	case <-done:
+		// Completed normally
+	case <-ctx.Done():
+		// Timeout occurred
+		yellow := color.New(color.FgYellow)
+		yellow.Printf("  ⚠ gospider timed out after %d minutes\n", s.GospiderTimeout)
+	}
+
+	file.Close()
 	return s.readLines(outputFile)
 }
 
-// runWebArchiveCDX runs direct Web Archive CDX API queries
+// runWebArchiveCDX runs direct Web Archive CDX API queries with timeout
 func (s *Scanner) runWebArchiveCDX(subdomains []string, tempDir string) ([]string, error) {
 	outputFile := filepath.Join(tempDir, "webarchive-cdx.txt")
 	file, err := os.Create(outputFile)
@@ -553,23 +735,48 @@ func (s *Scanner) runWebArchiveCDX(subdomains []string, tempDir string) ([]strin
 	}
 	defer file.Close()
 
-	for _, subdomain := range subdomains {
-		domain := strings.TrimPrefix(subdomain, "https://")
-		domain = strings.TrimPrefix(domain, "http://")
-		domain = strings.Split(domain, "/")[0]
+	// Create context with timeout
+	timeout := time.Duration(s.WebArchiveTimeout) * time.Minute
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 
-		// Query for JS files specifically
-		url := fmt.Sprintf("http://web.archive.org/cdx/search/cdx?url=*.%s/*&output=text&fl=original&collapse=urlkey", domain)
+	done := make(chan struct{})
+	go func() {
+		for _, subdomain := range subdomains {
+			// Check if context is cancelled
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
 
-		cmd := exec.Command("curl", "-s", url)
-		output, err := cmd.Output()
-		if err != nil {
-			continue
+			domain := strings.TrimPrefix(subdomain, "https://")
+			domain = strings.TrimPrefix(domain, "http://")
+			domain = strings.Split(domain, "/")[0]
+
+			url := fmt.Sprintf("http://web.archive.org/cdx/search/cdx?url=*.%s/*&output=text&fl=original&collapse=urlkey", domain)
+
+			cmd := exec.CommandContext(ctx, "curl", "-s", url)
+			output, err := cmd.Output()
+			if err != nil {
+				continue
+			}
+
+			file.Write(output)
 		}
+		close(done)
+	}()
 
-		file.Write(output)
+	select {
+	case <-done:
+		// Completed normally
+	case <-ctx.Done():
+		// Timeout occurred
+		yellow := color.New(color.FgYellow)
+		yellow.Printf("  ⚠ webarchive-cdx timed out after %d minutes\n", s.WebArchiveTimeout)
 	}
 
+	file.Close()
 	return s.readLines(outputFile)
 }
 

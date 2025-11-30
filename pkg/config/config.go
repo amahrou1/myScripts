@@ -14,9 +14,9 @@ import (
 // Config holds all configuration values
 type Config struct {
 	// API Keys
-	ShodanAPIKey    string
-	VirusTotalKey   string
-	AlienVaultKey   string
+	ShodanAPIKey  string
+	VirusTotalKey string
+	AlienVaultKey string
 
 	// Paths
 	PythonScript      string
@@ -25,9 +25,30 @@ type Config struct {
 	DNSResolvers      string
 
 	// Settings
-	MaxVHostIPs        int
-	WaymoreTimeout     int // in minutes
+	MaxVHostIPs int
+
+	// Global Phase Timeouts (in minutes)
+	SubdomainEnumTimeout int
+	URLCrawlingTimeout   int
+	PortScanTimeout      int
+	VulnScanTimeout      int
+	CloudEnumTimeout     int
+	NucleiScanTimeout    int
+
+	// Individual Tool Timeouts (in minutes)
+	WaybackurlsTimeout  int
+	GauTimeout          int
+	KatanaTimeout       int
+	KatanaParamsTimeout int
+	WaymoreTimeout      int
+	GospiderTimeout     int
+	WebArchiveTimeout   int
+
+	// Domain Limits
 	WaymoreMaxDomains  int
+	GauMaxDomains      int
+	KatanaMaxDomains   int
+	GospiderMaxDomains int
 }
 
 // Load loads configuration from .env file and environment variables
@@ -40,8 +61,29 @@ func Load() (*Config, error) {
 		VHostWordlist:     "/root/myLists/vhost-wordlist.txt",
 		DNSResolvers:      "/root/myLists/resolvers.txt",
 		MaxVHostIPs:       50,
-		WaymoreTimeout:    10,  // 10 minutes
-		WaymoreMaxDomains: 100, // Process max 100 domains
+
+		// Global Phase Timeouts (default: 10 hours = 600 minutes)
+		SubdomainEnumTimeout: 600,
+		URLCrawlingTimeout:   600,
+		PortScanTimeout:      600,
+		VulnScanTimeout:      600,
+		CloudEnumTimeout:     60, // 1 hour
+		NucleiScanTimeout:    600,
+
+		// Individual Tool Timeouts
+		WaybackurlsTimeout:  30,
+		GauTimeout:          30,
+		KatanaTimeout:       60,
+		KatanaParamsTimeout: 60,
+		WaymoreTimeout:      10,
+		GospiderTimeout:     60,
+		WebArchiveTimeout:   30,
+
+		// Domain Limits
+		WaymoreMaxDomains:  100,
+		GauMaxDomains:      200,
+		KatanaMaxDomains:   150,
+		GospiderMaxDomains: 100,
 	}
 
 	// Try to find .env file
@@ -77,8 +119,29 @@ func Load() (*Config, error) {
 	cfg.VHostWordlist = getEnv("VHOST_WORDLIST", cfg.VHostWordlist)
 	cfg.DNSResolvers = getEnv("DNS_RESOLVERS", cfg.DNSResolvers)
 	cfg.MaxVHostIPs = getEnvInt("MAX_VHOST_IPS", cfg.MaxVHostIPs)
+
+	// Global Phase Timeouts
+	cfg.SubdomainEnumTimeout = getEnvInt("SUBDOMAIN_ENUM_TIMEOUT", cfg.SubdomainEnumTimeout)
+	cfg.URLCrawlingTimeout = getEnvInt("URL_CRAWLING_TIMEOUT", cfg.URLCrawlingTimeout)
+	cfg.PortScanTimeout = getEnvInt("PORT_SCAN_TIMEOUT", cfg.PortScanTimeout)
+	cfg.VulnScanTimeout = getEnvInt("VULN_SCAN_TIMEOUT", cfg.VulnScanTimeout)
+	cfg.CloudEnumTimeout = getEnvInt("CLOUD_ENUM_TIMEOUT", cfg.CloudEnumTimeout)
+	cfg.NucleiScanTimeout = getEnvInt("NUCLEI_SCAN_TIMEOUT", cfg.NucleiScanTimeout)
+
+	// Individual Tool Timeouts
+	cfg.WaybackurlsTimeout = getEnvInt("WAYBACKURLS_TIMEOUT", cfg.WaybackurlsTimeout)
+	cfg.GauTimeout = getEnvInt("GAU_TIMEOUT", cfg.GauTimeout)
+	cfg.KatanaTimeout = getEnvInt("KATANA_TIMEOUT", cfg.KatanaTimeout)
+	cfg.KatanaParamsTimeout = getEnvInt("KATANA_PARAMS_TIMEOUT", cfg.KatanaParamsTimeout)
 	cfg.WaymoreTimeout = getEnvInt("WAYMORE_TIMEOUT", cfg.WaymoreTimeout)
+	cfg.GospiderTimeout = getEnvInt("GOSPIDER_TIMEOUT", cfg.GospiderTimeout)
+	cfg.WebArchiveTimeout = getEnvInt("WEBARCHIVE_TIMEOUT", cfg.WebArchiveTimeout)
+
+	// Domain Limits
 	cfg.WaymoreMaxDomains = getEnvInt("WAYMORE_MAX_DOMAINS", cfg.WaymoreMaxDomains)
+	cfg.GauMaxDomains = getEnvInt("GAU_MAX_DOMAINS", cfg.GauMaxDomains)
+	cfg.KatanaMaxDomains = getEnvInt("KATANA_MAX_DOMAINS", cfg.KatanaMaxDomains)
+	cfg.GospiderMaxDomains = getEnvInt("GOSPIDER_MAX_DOMAINS", cfg.GospiderMaxDomains)
 
 	// Validate critical settings
 	if cfg.ShodanAPIKey == "" {
