@@ -4,136 +4,164 @@ A fast, efficient, and scalable reconnaissance framework for bug bounty hunting,
 
 ## 🚀 Features
 
-### Step 1: Subdomain Enumeration
+### ✅ Step 1: Subdomain Enumeration
 
-- ✅ **Wildcard DNS Detection** - Automatically detects wildcard DNS configurations
-- ✅ **Concurrent Passive Enumeration** - Runs 8 tools simultaneously:
-  - subfinder
-  - amass
-  - assetfinder
-  - findomain
-  - **Web Archive (Wayback Machine)** - Historical subdomain data
-  - **crt.sh** - Certificate Transparency logs
-  - **subshodan** - Shodan API subdomain discovery
-  - **Python subdomain-Enum.py** - Custom Python enumeration script
-- ✅ **Brute Force with massdns** - Fast DNS brute forcing (skipped if wildcard detected)
-- ✅ **Live Host Detection** - Uses httpx to verify live services
-- ✅ **Smart VHost Fuzzing** - Discovers hidden subdomains via virtual host fuzzing
-  - Extracts IPs from discovered subdomains
-  - Queries Shodan for IPs via SSL certificates
-  - **Filters out CDN/Cloud IPs** (Cloudflare, AWS, Azure, GCP, Fastly, Akamai)
-  - **Limits to top 50 most common IPs** (faster, more relevant)
-  - **Uses dedicated VHost wordlist** (120 entries, focused on common vhosts)
-  - **Live progress tracking** (shows current IP being tested)
-  - **Optional -skip-vhost flag** for faster scans
-  - Uses ffuf for concurrent VHost fuzzing
-  - Filters results to find truly new subdomains
-- ✅ **Deduplication** - Automatically removes duplicates and sorts results
-- ✅ **Live Progress Tracking** - Real-time colored output showing progress
-- ✅ **Organized Output** - Structured results in custom output directories
+- **Wildcard DNS Detection** - Automatically detects wildcard DNS configurations
+- **Concurrent Passive Enumeration** - Runs 8 tools simultaneously:
+  - subfinder, amass, assetfinder, findomain
+  - Web Archive (Wayback Machine), crt.sh, subshodan
+  - Python subdomain-Enum.py (custom script)
+- **Brute Force with massdns** - Fast DNS brute forcing (skipped if wildcard detected)
+- **Live Host Detection** - Uses httpx to verify live services
+- **Smart VHost Fuzzing** - Discovers hidden subdomains via virtual host fuzzing
+  - Filters out CDN/Cloud IPs (Cloudflare, AWS, Azure, GCP, Fastly, Akamai)
+  - Limits to top 50 most common IPs
+  - Optional `-skip-vhost` flag for faster scans
+- **Deduplication** - Automatically removes duplicates and sorts results
+- **Live Progress Tracking** - Real-time colored output
+- **Configurable Timeout** - 10-hour max (configurable via `.env`)
 
-### Step 2: Nuclei Vulnerability Scanning
+### ✅ Step 2: URL Crawling & Discovery
 
-- ✅ **Automated Vulnerability Scanning** - Scans all discovered targets with Nuclei
-- ✅ **Multi-Source Scanning** - Scans both live subdomains and Shodan IPs
-- ✅ **Dual Template Support** - Uses both default and custom templates
-  - Default: `/root/nuclei-templates` (Project Discovery templates)
-  - Custom: `/root/test123` (Your custom templates)
-- ✅ **Severity Filtering** - Scans for medium, high, and critical vulnerabilities
-- ✅ **Clean Progress Output** - Single-line progress updates instead of multiple lines
-- ✅ **Real-time Output** - Shows scan progress and findings as they happen
-- ✅ **Optional -skip-nuclei flag** - Skip Nuclei scanning for faster runs
-- ✅ **Organized Results** - Saves findings to `nuclei.txt`
+- **7 Parallel URL Discovery Tools** with individual timeouts:
+  - waybackurls (30 min timeout)
+  - gau (30 min timeout, 200 domain limit)
+  - katana (60 min timeout, 150 domain limit)
+  - katana-params (60 min timeout, 150 domain limit)
+  - waymore (10 min timeout, 100 domain limit)
+  - gospider (60 min timeout, 100 domain limit)
+  - webarchive-cdx (30 min timeout)
+- **Smart Domain Limiting** - Prevents processing too many targets
+- **Graceful Timeout Handling** - Saves partial results on timeout
+- **Global Phase Timeout** - 10-hour max for entire URL crawling (configurable)
+- **Deduplication with uro** - Removes duplicate URLs
+- **Intelligent Filtering**:
+  - Parameter URLs (for vulnerability testing)
+  - JavaScript files (for analysis)
+  - Sensitive files (.env, .json, config files, etc.)
+- **Live Verification with httpx** - Confirms URLs are accessible
 
-### Step 3: Port Scanning
+### ✅ Step 2.5: Vulnerability Scanning (XSS & SQLi)
 
-- ✅ **Smart Port Discovery** - Scans top 5000 ports on all targets
-- ✅ **Multi-Target Scanning** - Scans both live subdomains AND Shodan IPs
-- ✅ **Intelligent Filtering** - Excludes default ports (80, 443) to focus on interesting services
-- ✅ **Live Service Verification** - Uses httpx to verify discovered ports are actually live
-- ✅ **URL Format Output** - Saves results as full URLs (e.g., https://test.com:8443)
-- ✅ **Fast Scanning with nmap** - Uses nmap for reliable port scanning
-- ✅ **Optional -skip-portscan flag** - Skip port scanning for faster runs
-- ✅ **Organized Results** - Saves live services to `open-ports.txt`
+- **XSS Detection Pipeline**:
+  - gf pattern filtering for XSS candidates
+  - kxss for quick XSS detection
+  - dalfox for confirmed XSS vulnerabilities
+- **SQLi Detection Pipeline**:
+  - gf pattern filtering for SQLi candidates
+  - ghauri for fast SQLi scanning
+  - sqlmap for confirmed SQLi (limited targets)
+- **Automated gf Pattern Installation**
+- **Configurable Timeout** - 10-hour max (configurable via `.env`)
+
+### ✅ Step 3: Port Scanning
+
+- **Smart Port Discovery** - Scans top 1000 ports with nmap
+- **Multi-Target Scanning** - Scans both live subdomains AND Shodan IPs
+- **Intelligent Filtering** - Excludes default ports (80, 443)
+- **Live Service Verification** - Uses httpx to verify discovered ports
+- **URL Format Output** - Saves results as full URLs (e.g., https://test.com:8443)
+- **Optional `-skip-portscan` flag**
+- **Configurable Timeout** - 10-hour max (configurable via `.env`)
+
+### ✅ Step 4: Directory Fuzzing
+
+- **ffuf Integration** - Fast directory/file discovery
+- **Smart Filtering** - Reduces false positives
+- **Concurrent Fuzzing** - Multiple targets in parallel
+- **Auto-calibration** - Accurate results
+- **Timeout Management** - Prevents hanging
+
+### ✅ Bonus: Cloud Enumeration
+
+- **S3 Bucket Discovery** - Uses slurp for bucket permutations
+- **Multi-Cloud Support** - AWS, Azure, GCP with cloud_enum
+- **Targeted Scanning** - Main domain only (not subdomains)
+- **Optional `-skip-cloudenum` flag**
+- **Configurable Timeout** - 1-hour max (configurable via `.env`)
+
+### ✅ Step 5: Nuclei Vulnerability Scanning
+
+- **Automated Vulnerability Scanning** - Scans all discovered targets
+- **Multi-Source Scanning** - Scans subdomains, IPs, and crawled URLs
+- **Dual Template Support**:
+  - Default: `/root/nuclei-templates` (Project Discovery)
+  - Custom: `/root/test123` (your templates)
+- **Severity Filtering** - Medium, high, and critical only
+- **Fuzzing Templates** - Scans parameter URLs with fuzzing templates
+- **JS Exposure Templates** - Scans JavaScript files for exposures
+- **Optional `-skip-nuclei` flag**
+- **Configurable Timeout** - 10-hour max (configurable via `.env`)
+
+### 🔒 Security Features
+
+- **Environment-Based Configuration** - API keys in `.env` (never in code)
+- **Input Validation** - Domain, path, and URL sanitization
+- **Comprehensive Logging** - Detailed logs in `{output}/logs/` directory
+- **Dependency Checking** - Verify all tools are installed with `-check-deps`
+- **Git History Cleanup Script** - Remove exposed secrets from history
+
+### ⚡ Performance Features
+
+- **Comprehensive Timeout Management** - No scan phase can hang indefinitely
+- **Global Phase Timeouts** - Each major phase has max execution time (default: 10 hours)
+- **Individual Tool Timeouts** - Each tool has its own timeout limit
+- **Domain Limits** - Prevent processing too many targets
+- **Graceful Degradation** - Saves partial results on timeout
+- **Parallel Execution** - Multiple tools run simultaneously
+- **Smart Filtering** - CDN/cloud IP exclusion, deduplication
+
+---
 
 ## 📋 Prerequisites
 
 ### Required Tools
 
-Make sure these tools are installed and available in your PATH:
-
 ```bash
-# Check if tools are installed
-which subfinder amass assetfinder findomain massdns httpx dig ffuf shodan nuclei naabu
+# Core tools (required)
+httpx subfinder amass assetfinder findomain massdns dig nmap
+
+# URL crawling tools (required for -skip-urlcrawl=false)
+waybackurls gau katana waymore gospider uro
+
+# Vulnerability scanning (required for -skip-vulnscan=false)
+gf kxss dalfox ghauri sqlmap
+
+# Cloud enumeration (required for -skip-cloudenum=false)
+slurp cloud_enum
+
+# Directory fuzzing (required for -skip-dirfuzz=false)
+ffuf
+
+# Nuclei (required for -skip-nuclei=false)
+nuclei
+
+# Shodan CLI (optional, enhances results)
+shodan
 ```
 
-**Installation on Ubuntu/Debian:**
-
+**Quick Dependency Check:**
 ```bash
-# Go (if not already installed)
-wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz
-export PATH=$PATH:/usr/local/go/bin
-
-# Subfinder
-go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
-
-# Amass
-go install -v github.com/owasp-amass/amass/v4/...@master
-
-# Assetfinder
-go install -v github.com/tomnomnom/assetfinder@latest
-
-# Findomain
-wget https://github.com/findomain/findomain/releases/latest/download/findomain-linux
-chmod +x findomain-linux
-sudo mv findomain-linux /usr/local/bin/findomain
-
-# Httpx
-go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
-
-# Massdns
-git clone https://github.com/blechschmidt/massdns.git
-cd massdns
-make
-sudo make install
-
-# ffuf (for VHost fuzzing)
-go install github.com/ffuf/ffuf@latest
-
-# Shodan CLI (for IP collection)
-pip install shodan
-# Configure with your API key:
-shodan init YOUR_API_KEY
-
-# Nuclei (for vulnerability scanning)
-go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
-# Update nuclei templates
-nuclei -update-templates
-
-# Naabu (for port scanning)
-go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest
+./bin/recon -check-deps
 ```
 
-### Required Wordlists
+### Installation Guide
 
-- Subdomain wordlist: `/root/myLists/subdomains.txt`
-- VHost wordlist: `/root/myLists/vhost-wordlist.txt` (auto-created from config/)
-- DNS resolvers: `/root/myLists/resolvers.txt`
+See [SETUP.md](SETUP.md) for detailed installation instructions for all tools.
 
-### Configuration
-
-Edit `config/config.env` to customize:
-- Shodan API key
-- Python script path
-- Wordlist locations
-- VHost fuzzing settings (max IPs to test)
+---
 
 ## 🔧 Installation
 
 ```bash
 # Clone the repository
 cd /root/myScripts
+
+# Create .env file from template
+cp .env.example .env
+
+# Edit .env and add your API keys
+nano .env
 
 # Build the binary
 make build
@@ -143,6 +171,54 @@ make install
 ```
 
 This will create a binary at `bin/recon` (or install to `/usr/local/bin/recon`).
+
+---
+
+## ⚙️ Configuration
+
+### Quick Setup
+
+1. **Copy the example configuration:**
+   ```bash
+   cp .env.example .env
+   ```
+
+2. **Edit `.env` and add your API keys:**
+   ```bash
+   # Required for Shodan features
+   SHODAN_API_KEY=your_shodan_api_key_here
+
+   # Optional (enhances URL discovery)
+   VT_API_KEY=your_virustotal_key_here
+   ALIEN_API_KEY=your_alienvault_key_here
+   ```
+
+3. **Customize timeout settings (optional):**
+   ```bash
+   # Global phase timeouts (in minutes)
+   SUBDOMAIN_ENUM_TIMEOUT=600      # 10 hours
+   URL_CRAWLING_TIMEOUT=600        # 10 hours
+   PORT_SCAN_TIMEOUT=600           # 10 hours
+   VULN_SCAN_TIMEOUT=600           # 10 hours
+   NUCLEI_SCAN_TIMEOUT=600         # 10 hours
+   CLOUD_ENUM_TIMEOUT=60           # 1 hour
+
+   # Individual tool timeouts (in minutes)
+   WAYMORE_TIMEOUT=10              # 10 minutes
+   GAU_TIMEOUT=30                  # 30 minutes
+   KATANA_TIMEOUT=60               # 1 hour
+   GOSPIDER_TIMEOUT=60             # 1 hour
+
+   # Domain limits (prevents processing too many targets)
+   WAYMORE_MAX_DOMAINS=100
+   GAU_MAX_DOMAINS=200
+   KATANA_MAX_DOMAINS=150
+   GOSPIDER_MAX_DOMAINS=100
+   ```
+
+**See [SETUP.md](SETUP.md) for complete configuration guide.**
+
+---
 
 ## 📖 Usage
 
@@ -157,7 +233,7 @@ This will create a binary at `bin/recon` (or install to `/usr/local/bin/recon`).
 ```
 -d string
     Target domain (required)
-    Example: example.com or avantgardportal.com
+    Example: example.com
 
 -o string
     Output directory (required)
@@ -165,16 +241,24 @@ This will create a binary at `bin/recon` (or install to `/usr/local/bin/recon`).
 
 -skip-vhost
     Skip VHost fuzzing (faster, recommended for large scans)
-    VHost fuzzing can be slow on large IP sets
+
+-skip-urlcrawl
+    Skip URL crawling and discovery
+
+-skip-vulnscan
+    Skip vulnerability scanning (XSS & SQLi)
 
 -skip-cloudenum
     Skip cloud enumeration (S3, Azure, GCP)
 
 -skip-portscan
-    Skip port scanning (top 5000 ports)
+    Skip port scanning
 
 -skip-nuclei
     Skip Nuclei vulnerability scanning
+
+-check-deps
+    Check if all dependencies are installed and exit
 
 -h
     Show help message
@@ -183,24 +267,23 @@ This will create a binary at `bin/recon` (or install to `/usr/local/bin/recon`).
 ### Examples
 
 ```bash
-# Scan example.com and save to 'results' directory
+# Full scan (all features)
 ./bin/recon -d example.com -o results
 
-# Scan with absolute path
-./bin/recon -d avantgardportal.com -o /root/scans/avantgard
+# Check dependencies first
+./bin/recon -check-deps
 
-# Skip VHost fuzzing for faster results
-./bin/recon -d example.com -o results -skip-vhost
-
-# Skip port scanning
+# Fast scan (skip VHost and port scanning)
 ./bin/recon -d example.com -o results -skip-vhost -skip-portscan
 
-# Subdomain enum only (fastest)
-./bin/recon -d example.com -o results -skip-vhost -skip-portscan -skip-nuclei
+# Subdomain enumeration only
+./bin/recon -d example.com -o results -skip-vhost -skip-urlcrawl -skip-portscan -skip-nuclei
 
-# After installation (system-wide)
-recon -d target.com -o /root/recon/target
+# Skip active crawling (faster URL discovery)
+./bin/recon -d example.com -o results -skip-vhost
 ```
+
+---
 
 ## 📁 Output Structure
 
@@ -208,153 +291,144 @@ After running a scan, the output directory will contain:
 
 ```
 results/
-├── all-subdomains.txt      # All unique subdomains found (includes vhost results)
-├── live-subdomains.txt     # Subdomains with live HTTP/HTTPS services
-├── vhost-subdomains.txt    # Subdomains discovered via VHost fuzzing (if any)
-├── shodan-ips.txt          # IPs collected from Shodan (verified live)
-├── cloud-resources.txt     # Cloud resources (S3, Azure, GCP)
-├── open-ports.txt          # Live services on non-standard ports
-└── nuclei.txt              # Nuclei vulnerability scan results
+├── logs/
+│   └── recon_2025-01-15_10-30-45.log   # Detailed execution log
+├── all-subdomains.txt                  # All discovered subdomains
+├── live-subdomains.txt                 # Live HTTP/HTTPS subdomains
+├── vhost-subdomains.txt                # VHost-discovered subdomains
+├── shodan-ips.txt                      # Shodan SSL certificate IPs
+├── unique-urls.txt                     # All unique URLs
+├── params.txt                          # Live URLs with parameters
+├── live-js.txt                         # Live JavaScript files
+├── sensitive-files.txt                 # Sensitive files (.env, .json, etc.)
+├── params-filtered-xss.txt             # XSS candidate URLs (gf filtered)
+├── params-filtered-sqli.txt            # SQLi candidate URLs (gf filtered)
+├── kxss-results.txt                    # kxss scan results
+├── xss-vulnerable.txt                  # Confirmed XSS vulnerabilities
+├── ghauri-results.txt                  # Ghauri SQLi scan results
+├── ghauri-vulnerable-urls.txt          # Confirmed SQLi vulnerabilities
+├── sqlmap-results.txt                  # SQLmap confirmation results
+├── open-ports.txt                      # Live services on non-standard ports
+├── cloud-resources.txt                 # Discovered cloud resources
+├── fuzz.txt                            # Directory fuzzing results
+├── nuclei-results.txt                  # Nuclei scan results
+├── fuzzing-nuclei-result.txt           # Nuclei fuzzing scan results
+└── js-nuclei-result.txt                # Nuclei JS exposure results
 ```
 
-### Output Files
-
-- **all-subdomains.txt**: Complete list of unique subdomains from all sources (passive + brute force + vhost)
-- **live-subdomains.txt**: Subdomains verified to have active web services (HTTP/HTTPS)
-- **vhost-subdomains.txt**: Subdomains discovered specifically via VHost fuzzing (created only if VHost finds new results)
-- **shodan-ips.txt**: IPs collected from Shodan via SSL certificate search (verified live with httpx)
-- **cloud-resources.txt**: Discovered cloud resources (S3 buckets, Azure blobs, GCP storage)
-- **open-ports.txt**: Live services on non-standard ports (e.g., https://example.com:8443)
-- **nuclei.txt**: Vulnerability findings from Nuclei scans (medium, high, critical severities)
+---
 
 ## 🎯 Workflow
 
 The tool executes the following workflow:
 
-1. **Wildcard Detection**
-   - Tests for wildcard DNS using random subdomains
-   - If detected, brute force is skipped
+1. **Wildcard Detection** → Tests for wildcard DNS
+2. **Passive Enumeration** → 8 tools in parallel
+3. **DNS Brute Forcing** → massdns (if no wildcard)
+4. **Live Host Detection** → httpx verification
+5. **Shodan IP Collection** → SSL certificate search
+6. **VHost Fuzzing** → Discover hidden subdomains (optional)
+7. **URL Crawling** → 7 tools in parallel with timeouts
+8. **Vulnerability Scanning** → XSS & SQLi detection (optional)
+9. **Cloud Enumeration** → S3/Azure/GCP discovery (optional)
+10. **Port Scanning** → Top 1000 ports with nmap (optional)
+11. **Directory Fuzzing** → ffuf-based discovery (optional)
+12. **Nuclei Scanning** → Template-based vuln scanning (optional)
 
-2. **Passive Enumeration** (Concurrent)
-   - Runs 8 sources simultaneously (subfinder, amass, assetfinder, findomain, wayback, crt.sh, subshodan, python-enum)
-   - Collects subdomains from multiple sources
-   - Shows progress for each tool
+**Each phase has configurable timeouts to prevent indefinite hanging.**
 
-3. **Brute Force** (Conditional)
-   - Uses massdns with custom wordlist
-   - Only runs if no wildcard detected
-   - Fast DNS resolution
+---
 
-4. **Deduplication**
-   - Combines all results
-   - Removes duplicates
-   - Sorts alphabetically
+## ⏱️ Timeout Management
 
-5. **Live Host Detection**
-   - Verifies which subdomains are live
-   - Uses httpx for HTTP/HTTPS probing
-   - Saves live hosts separately
+**Global Phase Timeouts (default: 10 hours each):**
+- Subdomain Enumeration: 600 minutes
+- URL Crawling: 600 minutes
+- Port Scanning: 600 minutes
+- Vulnerability Scanning: 600 minutes
+- Nuclei Scanning: 600 minutes
+- Cloud Enumeration: 60 minutes
 
-6. **Shodan IP Collection**
-   - Collects IPs from Shodan via SSL certificate search
-   - Verifies IPs with httpx (both http:// and https://)
-   - Saves only live IPs with proper URL format
+**Individual Tool Timeouts:**
+- waymore: 10 minutes (100 domain limit)
+- gau: 30 minutes (200 domain limit)
+- katana: 60 minutes (150 domain limit)
+- gospider: 60 minutes (100 domain limit)
+- waybackurls: 30 minutes
+- webarchive-cdx: 30 minutes
 
-7. **VHost Fuzzing** (Advanced - Optional with -skip-vhost)
-   - Extracts IPs from discovered subdomains
-   - Filters out CDN/Cloud provider IPs (Cloudflare, AWS, Azure, GCP, etc.)
-   - Selects top 50 most common IPs for targeted fuzzing
-   - Uses dedicated small VHost wordlist (120 entries)
-   - Shows live progress for each IP being tested
-   - Runs ffuf for virtual host fuzzing on selected IPs
-   - Discovers hidden subdomains without DNS records
-   - Filters out already known subdomains
-   - Verifies if vhost-discovered subdomains are live
+**All timeouts are configurable via `.env` file.**
 
-8. **Cloud Enumeration** (Bonus - Optional with -skip-cloudenum)
-   - Discovers exposed S3 buckets, Azure blobs, GCP storage
-   - Uses slurp for S3 bucket permutations
-   - Uses cloud_enum for multi-cloud discovery
-   - Scans main domain only (not subdomains)
-   - Saves results to cloud-resources.txt
+---
 
-9. **Port Scanning** (Step 3 - Optional with -skip-portscan)
-   - Scans top 5000 ports on all live subdomains and Shodan IPs
-   - Excludes default ports (80, 443)
-   - Uses nmap for reliable scanning
-   - Verifies discovered ports with httpx
-   - Saves as full URLs (e.g., https://target.com:8443)
+## 🚀 Current Feature Status
 
-10. **Vulnerability Scanning** (Step 2 - Optional with -skip-nuclei)
-    - Scans all live subdomains and Shodan IPs with Nuclei
-    - Uses both default (/root/nuclei-templates) and custom templates (/root/test123)
-    - Filters for medium, high, and critical severities
-    - Single-line progress updates
-    - Saves findings to nuclei.txt
+- ✅ Step 1: Subdomain Enumeration
+- ✅ Step 2: URL Crawling & Discovery
+- ✅ Step 2.5: Vulnerability Scanning (XSS & SQLi)
+- ✅ Step 3: Port Scanning
+- ✅ Step 4: Directory Fuzzing
+- ✅ Step 5: Nuclei Vulnerability Scanning
+- ✅ Bonus: Cloud Enumeration (S3, Azure, GCP)
+- ✅ Security: Environment-based configuration
+- ✅ Performance: Comprehensive timeout management
+- ✅ Logging: Detailed execution logs
+- ✅ Validation: Input sanitization & dependency checking
 
-## 🎨 Output Example
+---
 
-```
-╔═══════════════════════════════════════════════════════════════╗
-║                      SCAN INFORMATION                        ║
-╚═══════════════════════════════════════════════════════════════╝
-  Target Domain    : example.com
-  Output Directory : /root/results
-  Start Time       : 2025-01-15 10:30:45
+## 🔐 Security Best Practices
 
-[*] Starting Subdomain Enumeration for: example.com
+1. **Never commit `.env` file** - It's in `.gitignore`
+2. **Rotate API keys regularly** - See [SETUP.md](SETUP.md)
+3. **Use strong permissions** - `chmod 600 .env`
+4. **Clean git history** - Use `scripts/remove-api-key-from-history.sh` if needed
+5. **Validate domains** - Built-in input validation prevents injection
 
-═══════════════════════════════════════════════════════════════
-[Step 1/5] Wildcard DNS Detection
-═══════════════════════════════════════════════════════════════
-✓ No wildcard detected. Brute force will be performed.
+---
 
-═══════════════════════════════════════════════════════════════
-[Step 2/5] Passive Subdomain Enumeration
-═══════════════════════════════════════════════════════════════
-✓ subfinder: 45 subdomains (3.21s)
-✓ assetfinder: 32 subdomains (2.87s)
-✓ findomain: 38 subdomains (4.12s)
-✓ amass: 67 subdomains (15.43s)
-✓ Found 182 subdomains from passive sources
-```
+## 📚 Documentation
 
-## 🛠️ Configuration
+- **[SETUP.md](SETUP.md)** - Complete setup guide with credential management
+- **[.env.example](.env.example)** - Configuration template
+- **README.md** - This file
 
-The tool is pre-configured with sensible defaults. To customize:
-
-**Quick Config (Recommended):**
-Edit `config/config.env` to change:
-- Shodan API key
-- Python script path
-- Wordlist locations
-
-**Advanced Config:**
-Edit `pkg/subdomains/subdomains.go` to modify:
-- Tool timeouts
-- HTTP client settings
-- Additional enumeration sources
-
-## 🚀 Current Steps
-
-- ✅ Step 1: Subdomain Enumeration (Complete)
-- ✅ Step 2: Nuclei Vulnerability Scanning (Complete)
-- ✅ Step 3: Port Scanning (Complete)
-- ⏳ Step 4: Directory Fuzzing
-- ⏳ Step 5: URL Crawling
-- ⏳ Step 6: JavaScript File Collection
-- ⏳ Step 7: Secret Extraction
-- ⏳ Step 8: Endpoint Extraction
-- ⏳ Step 9: Vulnerability Scanning
+---
 
 ## 🤝 Contributing
 
 This is a private repository for personal bug bounty work.
 
+---
+
 ## 📝 License
 
 Private - Not for distribution
 
+---
+
 ## ⚠️ Disclaimer
 
-This tool is for authorized security testing only. Always ensure you have permission before scanning any target.
+**This tool is for authorized security testing only.** Always ensure you have explicit permission before scanning any target. Unauthorized scanning may be illegal in your jurisdiction.
+
+---
+
+## 🆘 Troubleshooting
+
+### URL Crawling Hanging?
+✅ **Fixed!** All tools have individual timeouts + global 10-hour phase timeout.
+
+### Missing Dependencies?
+```bash
+./bin/recon -check-deps
+```
+
+### API Keys Not Working?
+Check your `.env` file is in the correct location and properly formatted.
+
+### Logs?
+```bash
+cat results/logs/recon_*.log
+```
+
+For detailed troubleshooting, see [SETUP.md](SETUP.md).
