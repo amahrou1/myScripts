@@ -37,3 +37,12 @@ scans/
 # OS
 .DS_Store
 Thumbs.db
+
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+config/config.env
+*.key
+*.pem
+credentials.json

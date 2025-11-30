@@ -46,7 +46,7 @@ func NewEnumerator(domain, outputDir string) *Enumerator {
 		Wordlist:      "/root/myLists/subdomains.txt",
 		VHostWordlist: "/root/myLists/vhost-wordlist.txt",
 		Resolvers:     "/root/myLists/resolvers.txt",
-		ShodanAPIKey:  "j8PrRv5fW2Ox7Vt8PBJIdNokQv5lsBD1",
+		ShodanAPIKey:  os.Getenv("SHODAN_API_KEY"), // Load from environment variable
 		PythonScript:  "/root/tools/subdomain-enum/subdomain-Enum.py",
 		SkipVHost:     false,
 		Verbose:       true,
