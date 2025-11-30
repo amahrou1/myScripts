@@ -9,10 +9,13 @@ import (
 	"time"
 
 	"github.com/amahrou1/myScripts/pkg/cloudenum"
+	"github.com/amahrou1/myScripts/pkg/config"
+	"github.com/amahrou1/myScripts/pkg/logger"
 	"github.com/amahrou1/myScripts/pkg/nuclei"
 	"github.com/amahrou1/myScripts/pkg/portscan"
 	"github.com/amahrou1/myScripts/pkg/subdomains"
 	"github.com/amahrou1/myScripts/pkg/urlcrawl"
+	"github.com/amahrou1/myScripts/pkg/utils"
 	"github.com/amahrou1/myScripts/pkg/vulnscan"
 	"github.com/fatih/color"
 )
@@ -43,6 +46,7 @@ func main() {
 	skipCloudenum := flag.Bool("skip-cloudenum", false, "Skip cloud enumeration")
 	skipPortscan := flag.Bool("skip-portscan", false, "Skip port scanning")
 	skipNuclei := flag.Bool("skip-nuclei", false, "Skip Nuclei vulnerability scanning")
+	checkDeps := flag.Bool("check-deps", false, "Check dependencies and exit")
 	help := flag.Bool("h", false, "Show help")
 
 	flag.Parse()
@@ -51,18 +55,36 @@ func main() {
 	cyan := color.New(color.FgCyan, color.Bold)
 	cyan.Println(banner)
 
+	// Load configuration
+	cfg, err := config.Load()
+	if err != nil {
+		color.Red("Error loading configuration: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Check dependencies if requested
+	if *checkDeps {
+		if err := utils.CheckDependencies(true); err != nil {
+			os.Exit(1)
+		}
+		color.Green("\n✓ All dependencies are satisfied\n")
+		os.Exit(0)
+	}
+
 	// Show help
 	if *help || *domain == "" || *output == "" {
 		showHelp()
 		os.Exit(0)
 	}
 
-	// Validate domain
-	if *domain == "" {
-		color.Red("Error: Domain is required\n")
-		showHelp()
+	// Validate and sanitize domain
+	validatedDomain, err := utils.ValidateDomain(*domain)
+	if err != nil {
+		color.Red("Error: Invalid domain: %v\n", err)
+		color.Yellow("Please provide a valid domain (e.g., example.com)\n")
 		os.Exit(1)
 	}
+	*domain = validatedDomain
 
 	// Validate output directory
 	if *output == "" {
@@ -71,11 +93,50 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create absolute path for output directory
+	// Sanitize and create absolute path for output directory
 	outputDir, err := filepath.Abs(*output)
 	if err != nil {
 		color.Red("Error: Invalid output directory: %v\n", err)
 		os.Exit(1)
+	}
+
+	if _, err := utils.SanitizeFilePath(outputDir); err != nil {
+		color.Red("Error: Invalid output path: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Create output directory
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		color.Red("Error: Failed to create output directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Initialize logging
+	if err := logger.Init(outputDir, true); err != nil {
+		color.Yellow("Warning: Failed to initialize logging: %v\n", err)
+	} else {
+		defer logger.Close()
+	}
+
+	logger.Info("Starting scan for domain: %s", *domain)
+	logger.Info("Output directory: %s", outputDir)
+
+	// Check dependencies (non-verbose, just log warnings)
+	if err := utils.CheckDependencies(false); err != nil {
+		logger.Error("Dependency check failed: %v", err)
+		color.Red("\n✗ Missing required dependencies. Run with -check-deps to see details.\n")
+		os.Exit(1)
+	}
+
+	// Show configuration warnings
+	warnings := cfg.Validate()
+	if len(warnings) > 0 {
+		yellow := color.New(color.FgYellow)
+		yellow.Println("\n⚠ Configuration warnings:")
+		for _, warning := range warnings {
+			yellow.Printf("  - %s\n", warning)
+			logger.Error("Config warning: %s", warning)
+		}
 	}
 
 	// Print scan information
@@ -95,23 +156,53 @@ func main() {
 
 	enumerator := subdomains.NewEnumerator(*domain, outputDir)
 	enumerator.SkipVHost = *skipVhost
+
+	// Apply config settings
+	if cfg.ShodanAPIKey != "" {
+		enumerator.ShodanAPIKey = cfg.ShodanAPIKey
+	}
+	if cfg.SubdomainWordlist != "" {
+		enumerator.Wordlist = cfg.SubdomainWordlist
+	}
+	if cfg.VHostWordlist != "" {
+		enumerator.VHostWordlist = cfg.VHostWordlist
+	}
+	if cfg.DNSResolvers != "" {
+		enumerator.Resolvers = cfg.DNSResolvers
+	}
+	if cfg.PythonScript != "" {
+		enumerator.PythonScript = cfg.PythonScript
+	}
+
 	if err := enumerator.Run(); err != nil {
+		logger.Error("Subdomain enumeration failed: %v", err)
 		color.Red("\n✗ Error: %v\n", err)
 		os.Exit(1)
 	}
+	logger.Info("Subdomain enumeration completed successfully")
 
 	// Run URL Crawling if not skipped
 	if !*skipUrlcrawl {
 		urlscanner := urlcrawl.NewScanner(outputDir)
 		liveSubsFile := filepath.Join(outputDir, "live-subdomains.txt")
 
+		// Apply config settings
+		urlscanner.WaymoreTimeout = cfg.WaymoreTimeout
+		urlscanner.WaymoreMaxDomains = cfg.WaymoreMaxDomains
+		urlscanner.VirusTotalKey = cfg.VirusTotalKey
+		urlscanner.OTXKey = cfg.AlienVaultKey
+
 		if err := urlscanner.Run(liveSubsFile); err != nil {
+			logger.Error("URL crawling failed: %v", err)
 			color.Red("\n✗ URL crawling error: %v\n", err)
 			// Don't exit - URL crawling errors are not critical
+		} else {
+			logger.Info("URL crawling completed successfully")
 		}
 	} else {
 		yellow := color.New(color.FgYellow, color.Bold)
 		yellow.Println("\n[STEP 2] URL Crawling - SKIPPED (use without -skip-urlcrawl to enable)")
+		logger.Info("URL crawling skipped by user")
 	}
 
 	// Run Vulnerability Scanning if not skipped
@@ -121,24 +212,32 @@ func main() {
 		jsFile := filepath.Join(outputDir, "live-js.txt")
 
 		if err := vulnscanner.Run(paramsFile, jsFile); err != nil {
+			logger.Error("Vulnerability scanning failed: %v", err)
 			color.Red("\n✗ Vulnerability scanning error: %v\n", err)
 			// Don't exit - vulnerability scanning errors are not critical
+		} else {
+			logger.Info("Vulnerability scanning completed successfully")
 		}
 	} else if *skipVulnscan {
 		yellow := color.New(color.FgYellow, color.Bold)
 		yellow.Println("\n[STEP 2.5] Vulnerability Scanning - SKIPPED (use without -skip-vulnscan to enable)")
+		logger.Info("Vulnerability scanning skipped by user")
 	}
 
 	// Run Cloud Enumeration if not skipped
 	if !*skipCloudenum {
 		cloudscanner := cloudenum.NewScanner(outputDir)
 		if err := cloudscanner.Run(*domain); err != nil {
+			logger.Error("Cloud enumeration failed: %v", err)
 			color.Red("\n✗ Cloud enumeration error: %v\n", err)
 			// Don't exit - cloud enum errors are not critical
+		} else {
+			logger.Info("Cloud enumeration completed successfully")
 		}
 	} else {
 		yellow := color.New(color.FgYellow, color.Bold)
 		yellow.Println("\n[BONUS] Cloud Enumeration - SKIPPED (use without -skip-cloudenum to enable)")
+		logger.Info("Cloud enumeration skipped by user")
 	}
 
 	// Run Port Scanning if not skipped
@@ -148,12 +247,16 @@ func main() {
 		shodanIPsFile := filepath.Join(outputDir, "shodan-ips.txt")
 
 		if err := portscanner.Run(liveSubsFile, shodanIPsFile); err != nil {
+			logger.Error("Port scanning failed: %v", err)
 			color.Red("\n✗ Port scan error: %v\n", err)
 			// Don't exit - port scan errors are not critical
+		} else {
+			logger.Info("Port scanning completed successfully")
 		}
 	} else {
 		yellow := color.New(color.FgYellow, color.Bold)
 		yellow.Println("\n[STEP 3] Port Scanning - SKIPPED (use without -skip-portscan to enable)")
+		logger.Info("Port scanning skipped by user")
 	}
 
 	// Run Nuclei scanning if not skipped
@@ -164,8 +267,11 @@ func main() {
 		shodanIPsFile := filepath.Join(outputDir, "shodan-ips.txt")
 
 		if err := scanner.Run(liveSubsFile, shodanIPsFile); err != nil {
+			logger.Error("Nuclei scanning failed: %v", err)
 			color.Red("\n✗ Nuclei error: %v\n", err)
 			// Don't exit - Nuclei errors are not critical
+		} else {
+			logger.Info("Nuclei scanning completed successfully")
 		}
 
 		// Run Nuclei on URL crawling results if they exist
@@ -175,15 +281,20 @@ func main() {
 	} else {
 		yellow := color.New(color.FgYellow, color.Bold)
 		yellow.Println("\n[STEP 2] Nuclei Scanning - SKIPPED (use without -skip-nuclei to enable)")
+		logger.Info("Nuclei scanning skipped by user")
 	}
 
 	// Print completion
 	duration := time.Since(startTime)
+
 	green.Println("\n╔═══════════════════════════════════════════════════════════════╗")
 	green.Println("║                    SCAN COMPLETED                            ║")
 	green.Println("╚═══════════════════════════════════════════════════════════════╝")
 	yellow.Printf("  Total Duration: %s\n", formatDuration(duration))
-	green.Printf("\n✓ Results saved in: %s\n\n", outputDir)
+	green.Printf("\n✓ Results saved in: %s\n", outputDir)
+	green.Printf("✓ Logs saved in: %s/logs/\n\n", outputDir)
+
+	logger.Info("Scan completed successfully in %s", formatDuration(duration))
 }
 
 // runURLNucleiScans runs Nuclei scans on URL crawling results
@@ -266,6 +377,8 @@ func showHelp() {
 	white.Println("      Skip port scanning (top 1000 ports)")
 	white.Println("  -skip-nuclei")
 	white.Println("      Skip Nuclei vulnerability scanning")
+	white.Println("  -check-deps")
+	white.Println("      Check if all dependencies are installed and exit")
 	white.Println("  -h")
 	white.Println("      Show this help message")
 

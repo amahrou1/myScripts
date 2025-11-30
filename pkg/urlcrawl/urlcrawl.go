@@ -2,32 +2,38 @@ package urlcrawl
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/fatih/color"
 )
 
 type Scanner struct {
-	OutputDir        string
-	VirusTotalKey    string
-	OTXKey           string
-	EnableActive     bool
-	GospiderThreads  int
-	Verbose          bool
+	OutputDir         string
+	VirusTotalKey     string
+	OTXKey            string
+	EnableActive      bool
+	GospiderThreads   int
+	Verbose           bool
+	WaymoreTimeout    int // timeout in minutes
+	WaymoreMaxDomains int // max domains to process
 }
 
 // NewScanner creates a new URL crawler
 func NewScanner(outputDir string) *Scanner {
 	return &Scanner{
-		OutputDir:       outputDir,
-		EnableActive:    true, // katana enabled by default
-		GospiderThreads: 10,   // reasonable concurrency
-		Verbose:         true,
+		OutputDir:         outputDir,
+		EnableActive:      true, // katana enabled by default
+		GospiderThreads:   10,   // reasonable concurrency
+		Verbose:           true,
+		WaymoreTimeout:    10,  // 10 minutes default
+		WaymoreMaxDomains: 100, // process max 100 domains
 	}
 }
 
@@ -420,7 +426,7 @@ func (s *Scanner) runKatanaParams(subdomains []string, tempDir string) ([]string
 	return s.readLines(outputFile)
 }
 
-// runWaymore runs waymore for deep archive search
+// runWaymore runs waymore for deep archive search with timeout and domain limit
 func (s *Scanner) runWaymore(subdomains []string, tempDir string) ([]string, error) {
 	outputFile := filepath.Join(tempDir, "waymore.txt")
 	inputFile := filepath.Join(tempDir, "waymore-input.txt")
@@ -434,18 +440,41 @@ func (s *Scanner) runWaymore(subdomains []string, tempDir string) ([]string, err
 		cleanDomains = append(cleanDomains, domain)
 	}
 
+	// Limit number of domains to prevent hanging
+	if s.WaymoreMaxDomains > 0 && len(cleanDomains) > s.WaymoreMaxDomains {
+		yellow := color.New(color.FgYellow)
+		yellow.Printf("  → Limiting waymore to first %d domains (out of %d) to prevent timeout\n", s.WaymoreMaxDomains, len(cleanDomains))
+		cleanDomains = cleanDomains[:s.WaymoreMaxDomains]
+	}
+
 	if err := s.writeLines(inputFile, cleanDomains); err != nil {
 		return nil, err
 	}
 
-	cmd := exec.Command("waymore",
+	// Create context with timeout
+	timeout := time.Duration(s.WaymoreTimeout) * time.Minute
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "waymore",
 		"-i", inputFile,
-		"-n",        // no downloads
+		"-n",         // no downloads
 		"-mode", "U", // URLs only
 	)
 
 	output, err := cmd.Output()
 	if err != nil {
+		// Check if timeout occurred
+		if ctx.Err() == context.DeadlineExceeded {
+			yellow := color.New(color.FgYellow)
+			yellow.Printf("  ⚠ waymore timed out after %d minutes (processed partial results)\n", s.WaymoreTimeout)
+			// Try to use partial output if available
+			if len(output) > 0 {
+				os.WriteFile(outputFile, output, 0644)
+				return s.readLines(outputFile)
+			}
+			return []string{}, nil // Return empty but don't fail
+		}
 		return nil, err
 	}
 
