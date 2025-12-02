@@ -40,6 +40,42 @@ A fast, efficient, and scalable reconnaissance framework for bug bounty hunting,
   - Sensitive files (.env, .json, config files, etc.)
 - **Live Verification with httpx** - Confirms URLs are accessible
 
+### ✅ Step 2.3: JavaScript File Analysis 🔥
+
+**The goldmine for bug bounty hunters!** Modern web apps heavily rely on JavaScript, which often exposes:
+- **Hardcoded API keys and tokens**
+- **Hidden API endpoints**
+- **Authentication secrets**
+- **Database credentials**
+- **Undisclosed subdomains**
+
+**Three-Phase Analysis:**
+
+1. **Secret Detection**:
+   - **[jsluice](https://github.com/BishopFox/jsluice)** - Modern AST-based extraction (not just regex!)
+   - **[trufflehog](https://github.com/trufflesecurity/trufflehog)** - Deep secret scanning (optional)
+   - **Custom regex patterns** - API keys, AWS keys, JWT tokens, Firebase URLs, etc.
+   - **Output format**: Shows URL followed by all secrets found (easy to investigate!)
+
+2. **Endpoint Extraction**:
+   - Extracts all API paths and endpoints from JS files
+   - Understands string concatenation and dynamic URLs
+   - **Output**: Clean paths ready for fuzzing (`api/admin`, `v1/users`, etc.)
+   - Filters out static assets (.js, .css, images)
+   - **Saved to**: `endpoints-fuzzing.txt`
+
+3. **Domain-Specific Link Discovery**:
+   - Finds all URLs ending with your target domain
+   - Discovers hidden subdomains from JS references
+   - **Verifies with httpx** - Only saves live links
+   - **Saved to**: `links-js.txt`
+
+**Why jsluice?** Unlike regex-based tools, jsluice uses **go-tree-sitter** to parse JavaScript AST, understanding how URLs are actually used in code (assigned to `document.location`, passed to `fetch()`, etc.)
+
+**Concurrent Processing**: Processes 10 JS files simultaneously for maximum speed
+
+**Optional**: Use `-skip-jsanalysis` to skip this step
+
 ### ✅ Step 2.5: Vulnerability Scanning (XSS)
 
 - **XSS Detection Pipeline**:
@@ -117,7 +153,10 @@ A fast, efficient, and scalable reconnaissance framework for bug bounty hunting,
 httpx subfinder amass assetfinder findomain massdns dig nmap
 
 # URL crawling tools (required for -skip-urlcrawl=false)
-waybackurls gau katana gospider uro
+waybackurls gau katana gospider uro curl
+
+# JavaScript analysis (required for -skip-jsanalysis=false)
+jsluice trufflehog
 
 # Vulnerability scanning (required for -skip-vulnscan=false)
 gf kxss dalfox
@@ -292,6 +331,9 @@ results/
 ├── params.txt                          # Live URLs with parameters
 ├── live-js.txt                         # Live JavaScript files
 ├── sensitive-files.txt                 # Sensitive files (.env, .json, etc.)
+├── js-secrets.txt                      # Secrets/API keys from JS files
+├── endpoints-fuzzing.txt               # API endpoints for fuzzing
+├── links-js.txt                        # Live domain-specific links from JS
 ├── params-filtered-xss.txt             # XSS candidate URLs (gf filtered)
 ├── kxss-results.txt                    # kxss scan results
 ├── xss-vulnerable.txt                  # Confirmed XSS vulnerabilities
@@ -316,11 +358,12 @@ The tool executes the following workflow:
 5. **Shodan IP Collection** → SSL certificate search
 6. **VHost Fuzzing** → Discover hidden subdomains (optional)
 7. **URL Crawling** → 6 tools in parallel with 5-hour timeouts
-8. **Vulnerability Scanning** → XSS detection (optional)
-9. **Cloud Enumeration** → S3/Azure/GCP discovery (optional)
-10. **Port Scanning** → Top 5000 ports with nmap (optional)
-11. **Directory Fuzzing** → ffuf-based discovery (optional)
-12. **Nuclei Scanning** → Template-based vuln scanning (optional)
+8. **JavaScript Analysis** → Secrets, endpoints, domain links (optional)
+9. **Vulnerability Scanning** → XSS detection (optional)
+10. **Cloud Enumeration** → S3/Azure/GCP discovery (optional)
+11. **Port Scanning** → Top 5000 ports with nmap (optional)
+12. **Directory Fuzzing** → ffuf-based discovery (optional)
+13. **Nuclei Scanning** → Template-based vuln scanning (optional)
 
 **Each phase has configurable timeouts to prevent indefinite hanging.**
 

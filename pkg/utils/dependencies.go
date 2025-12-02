@@ -35,17 +35,19 @@ func CheckDependencies(verbose bool) error {
 		{Name: "waybackurls", Command: "waybackurls", Required: false, Description: "Wayback Machine URLs"},
 		{Name: "gau", Command: "gau", Required: false, Description: "Get All URLs"},
 		{Name: "katana", Command: "katana", Required: false, Description: "Web crawling"},
-		{Name: "waymore", Command: "waymore", Required: false, Description: "Archive crawling"},
 		{Name: "gospider", Command: "gospider", Required: false, Description: "Web spidering"},
 		{Name: "uro", Command: "uro", Required: false, Description: "URL deduplication"},
+		{Name: "curl", Command: "curl", Required: true, Description: "HTTP client"},
+
+		// JavaScript analysis
+		{Name: "jsluice", Command: "jsluice", Required: false, Description: "JS secrets/endpoints extraction"},
+		{Name: "trufflehog", Command: "trufflehog", Required: false, Description: "Deep secret scanning"},
 
 		// Vulnerability scanning
 		{Name: "nuclei", Command: "nuclei", Required: false, Description: "Vulnerability scanner"},
 		{Name: "gf", Command: "gf", Required: false, Description: "Pattern matching"},
 		{Name: "kxss", Command: "kxss", Required: false, Description: "XSS detection"},
 		{Name: "dalfox", Command: "dalfox", Required: false, Description: "XSS scanner"},
-		{Name: "ghauri", Command: "ghauri", Required: false, Description: "SQLi scanner"},
-		{Name: "sqlmap", Command: "sqlmap", Required: false, Description: "SQL injection"},
 
 		// Cloud enumeration
 		{Name: "slurp", Command: "slurp", Required: false, Description: "S3 bucket finder"},

@@ -10,6 +10,7 @@ import (
 
 	"github.com/amahrou1/myScripts/pkg/cloudenum"
 	"github.com/amahrou1/myScripts/pkg/config"
+	"github.com/amahrou1/myScripts/pkg/jsanalysis"
 	"github.com/amahrou1/myScripts/pkg/logger"
 	"github.com/amahrou1/myScripts/pkg/nuclei"
 	"github.com/amahrou1/myScripts/pkg/portscan"
@@ -42,6 +43,7 @@ func main() {
 	output := flag.String("o", "", "Output directory (required)")
 	skipVhost := flag.Bool("skip-vhost", false, "Skip VHost fuzzing (faster)")
 	skipUrlcrawl := flag.Bool("skip-urlcrawl", false, "Skip URL crawling")
+	skipJSAnalysis := flag.Bool("skip-jsanalysis", false, "Skip JavaScript file analysis")
 	skipVulnscan := flag.Bool("skip-vulnscan", false, "Skip vulnerability scanning (XSS & SQLi)")
 	skipCloudenum := flag.Bool("skip-cloudenum", false, "Skip cloud enumeration")
 	skipPortscan := flag.Bool("skip-portscan", false, "Skip port scanning")
@@ -214,6 +216,24 @@ func main() {
 		logger.Info("URL crawling skipped by user")
 	}
 
+	// Run JavaScript Analysis if not skipped
+	if !*skipJSAnalysis && !*skipUrlcrawl {
+		jsanalyzer := jsanalysis.NewAnalyzer(outputDir, *domain)
+		liveJSFile := filepath.Join(outputDir, "live-js.txt")
+
+		if err := jsanalyzer.Run(liveJSFile); err != nil {
+			logger.Error("JavaScript analysis failed: %v", err)
+			color.Red("\n✗ JavaScript analysis error: %v\n", err)
+			// Don't exit - JS analysis errors are not critical
+		} else {
+			logger.Info("JavaScript analysis completed successfully")
+		}
+	} else if *skipJSAnalysis {
+		yellow := color.New(color.FgYellow, color.Bold)
+		yellow.Println("\n[STEP 2.3] JavaScript Analysis - SKIPPED (use without -skip-jsanalysis to enable)")
+		logger.Info("JavaScript analysis skipped by user")
+	}
+
 	// Run Vulnerability Scanning if not skipped
 	if !*skipVulnscan && !*skipUrlcrawl {
 		vulnscanner := vulnscan.NewScanner(outputDir)
@@ -378,12 +398,14 @@ func showHelp() {
 	white.Println("      Skip VHost fuzzing (faster, recommended for large scans)")
 	white.Println("  -skip-urlcrawl")
 	white.Println("      Skip URL crawling and discovery")
+	white.Println("  -skip-jsanalysis")
+	white.Println("      Skip JavaScript file analysis (secrets, endpoints, domain links)")
 	white.Println("  -skip-vulnscan")
-	white.Println("      Skip vulnerability scanning (XSS & SQLi)")
+	white.Println("      Skip vulnerability scanning (XSS)")
 	white.Println("  -skip-cloudenum")
 	white.Println("      Skip cloud enumeration (S3, Azure, GCP)")
 	white.Println("  -skip-portscan")
-	white.Println("      Skip port scanning (top 1000 ports)")
+	white.Println("      Skip port scanning (top 5000 ports)")
 	white.Println("  -skip-nuclei")
 	white.Println("      Skip Nuclei vulnerability scanning")
 	white.Println("  -check-deps")
