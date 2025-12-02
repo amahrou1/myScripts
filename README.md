@@ -23,15 +23,14 @@ A fast, efficient, and scalable reconnaissance framework for bug bounty hunting,
 
 ### ✅ Step 2: URL Crawling & Discovery
 
-- **7 Parallel URL Discovery Tools** with individual timeouts:
-  - waybackurls (30 min timeout)
-  - gau (30 min timeout, 200 domain limit)
-  - katana (60 min timeout, 150 domain limit)
-  - katana-params (60 min timeout, 150 domain limit)
-  - waymore (10 min timeout, 100 domain limit)
-  - gospider (60 min timeout, 100 domain limit)
-  - webarchive-cdx (30 min timeout)
-- **Smart Domain Limiting** - Prevents processing too many targets
+- **6 Parallel URL Discovery Tools** with individual timeouts:
+  - waybackurls (5 hour timeout)
+  - gau (5 hour timeout)
+  - katana (5 hour timeout)
+  - katana-params (5 hour timeout)
+  - gospider (5 hour timeout)
+  - webarchive-cdx (5 hour timeout)
+- **No Domain Limits** - All tools process all discovered subdomains
 - **Graceful Timeout Handling** - Saves partial results on timeout
 - **Global Phase Timeout** - 10-hour max for entire URL crawling (configurable)
 - **Deduplication with uro** - Removes duplicate URLs
@@ -41,22 +40,18 @@ A fast, efficient, and scalable reconnaissance framework for bug bounty hunting,
   - Sensitive files (.env, .json, config files, etc.)
 - **Live Verification with httpx** - Confirms URLs are accessible
 
-### ✅ Step 2.5: Vulnerability Scanning (XSS & SQLi)
+### ✅ Step 2.5: Vulnerability Scanning (XSS)
 
 - **XSS Detection Pipeline**:
   - gf pattern filtering for XSS candidates
   - kxss for quick XSS detection
   - dalfox for confirmed XSS vulnerabilities
-- **SQLi Detection Pipeline**:
-  - gf pattern filtering for SQLi candidates
-  - ghauri for fast SQLi scanning
-  - sqlmap for confirmed SQLi (limited targets)
 - **Automated gf Pattern Installation**
 - **Configurable Timeout** - 10-hour max (configurable via `.env`)
 
 ### ✅ Step 3: Port Scanning
 
-- **Smart Port Discovery** - Scans top 1000 ports with nmap
+- **Smart Port Discovery** - Scans top 5000 ports with nmap
 - **Multi-Target Scanning** - Scans both live subdomains AND Shodan IPs
 - **Intelligent Filtering** - Excludes default ports (80, 443)
 - **Live Service Verification** - Uses httpx to verify discovered ports
@@ -105,8 +100,8 @@ A fast, efficient, and scalable reconnaissance framework for bug bounty hunting,
 
 - **Comprehensive Timeout Management** - No scan phase can hang indefinitely
 - **Global Phase Timeouts** - Each major phase has max execution time (default: 10 hours)
-- **Individual Tool Timeouts** - Each tool has its own timeout limit
-- **Domain Limits** - Prevent processing too many targets
+- **Individual Tool Timeouts** - Each URL crawl tool has 5-hour timeout
+- **No Domain Limits** - All tools process all discovered subdomains
 - **Graceful Degradation** - Saves partial results on timeout
 - **Parallel Execution** - Multiple tools run simultaneously
 - **Smart Filtering** - CDN/cloud IP exclusion, deduplication
@@ -122,10 +117,10 @@ A fast, efficient, and scalable reconnaissance framework for bug bounty hunting,
 httpx subfinder amass assetfinder findomain massdns dig nmap
 
 # URL crawling tools (required for -skip-urlcrawl=false)
-waybackurls gau katana waymore gospider uro
+waybackurls gau katana gospider uro
 
 # Vulnerability scanning (required for -skip-vulnscan=false)
-gf kxss dalfox ghauri sqlmap
+gf kxss dalfox
 
 # Cloud enumeration (required for -skip-cloudenum=false)
 slurp cloud_enum
@@ -204,16 +199,12 @@ This will create a binary at `bin/recon` (or install to `/usr/local/bin/recon`).
    CLOUD_ENUM_TIMEOUT=60           # 1 hour
 
    # Individual tool timeouts (in minutes)
-   WAYMORE_TIMEOUT=10              # 10 minutes
-   GAU_TIMEOUT=30                  # 30 minutes
-   KATANA_TIMEOUT=60               # 1 hour
-   GOSPIDER_TIMEOUT=60             # 1 hour
-
-   # Domain limits (prevents processing too many targets)
-   WAYMORE_MAX_DOMAINS=100
-   GAU_MAX_DOMAINS=200
-   KATANA_MAX_DOMAINS=150
-   GOSPIDER_MAX_DOMAINS=100
+   WAYBACKURLS_TIMEOUT=300         # 5 hours
+   GAU_TIMEOUT=300                 # 5 hours
+   KATANA_TIMEOUT=300              # 5 hours
+   KATANA_PARAMS_TIMEOUT=300       # 5 hours
+   GOSPIDER_TIMEOUT=300            # 5 hours
+   WEBARCHIVE_TIMEOUT=300          # 5 hours
    ```
 
 **See [SETUP.md](SETUP.md) for complete configuration guide.**
@@ -302,12 +293,8 @@ results/
 ├── live-js.txt                         # Live JavaScript files
 ├── sensitive-files.txt                 # Sensitive files (.env, .json, etc.)
 ├── params-filtered-xss.txt             # XSS candidate URLs (gf filtered)
-├── params-filtered-sqli.txt            # SQLi candidate URLs (gf filtered)
 ├── kxss-results.txt                    # kxss scan results
 ├── xss-vulnerable.txt                  # Confirmed XSS vulnerabilities
-├── ghauri-results.txt                  # Ghauri SQLi scan results
-├── ghauri-vulnerable-urls.txt          # Confirmed SQLi vulnerabilities
-├── sqlmap-results.txt                  # SQLmap confirmation results
 ├── open-ports.txt                      # Live services on non-standard ports
 ├── cloud-resources.txt                 # Discovered cloud resources
 ├── fuzz.txt                            # Directory fuzzing results
@@ -328,10 +315,10 @@ The tool executes the following workflow:
 4. **Live Host Detection** → httpx verification
 5. **Shodan IP Collection** → SSL certificate search
 6. **VHost Fuzzing** → Discover hidden subdomains (optional)
-7. **URL Crawling** → 7 tools in parallel with timeouts
-8. **Vulnerability Scanning** → XSS & SQLi detection (optional)
+7. **URL Crawling** → 6 tools in parallel with 5-hour timeouts
+8. **Vulnerability Scanning** → XSS detection (optional)
 9. **Cloud Enumeration** → S3/Azure/GCP discovery (optional)
-10. **Port Scanning** → Top 1000 ports with nmap (optional)
+10. **Port Scanning** → Top 5000 ports with nmap (optional)
 11. **Directory Fuzzing** → ffuf-based discovery (optional)
 12. **Nuclei Scanning** → Template-based vuln scanning (optional)
 
@@ -350,12 +337,12 @@ The tool executes the following workflow:
 - Cloud Enumeration: 60 minutes
 
 **Individual Tool Timeouts:**
-- waymore: 10 minutes (100 domain limit)
-- gau: 30 minutes (200 domain limit)
-- katana: 60 minutes (150 domain limit)
-- gospider: 60 minutes (100 domain limit)
-- waybackurls: 30 minutes
-- webarchive-cdx: 30 minutes
+- waybackurls: 5 hours (300 minutes)
+- gau: 5 hours (300 minutes)
+- katana: 5 hours (300 minutes)
+- katana-params: 5 hours (300 minutes)
+- gospider: 5 hours (300 minutes)
+- webarchive-cdx: 5 hours (300 minutes)
 
 **All timeouts are configurable via `.env` file.**
 

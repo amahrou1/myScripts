@@ -13,7 +13,7 @@ import (
 
 type Scanner struct {
 	OutputDir    string
-	TopPorts     int    // Number of top ports to scan (default: 1000)
+	TopPorts     int    // Number of top ports to scan (default: 5000)
 	ExcludePorts string
 	Verbose      bool
 }
@@ -22,7 +22,7 @@ type Scanner struct {
 func NewScanner(outputDir string) *Scanner {
 	return &Scanner{
 		OutputDir:    outputDir,
-		TopPorts:     1000, // Default: scan top 1000 ports (fast and practical)
+		TopPorts:     5000, // Default: scan top 5000 ports
 		ExcludePorts: "80,443",
 		Verbose:      true,
 	}

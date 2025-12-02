@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/fatih/color"
 )
@@ -35,7 +34,7 @@ func (s *Scanner) Run(paramsFile, jsFile string) error {
 	red := color.New(color.FgRed, color.Bold)
 
 	yellow.Println("\n═══════════════════════════════════════════════════════════════")
-	yellow.Println("[STEP 6] Vulnerability Scanning (XSS & SQLi)")
+	yellow.Println("[STEP 6] Vulnerability Scanning (XSS)")
 	yellow.Println("═══════════════════════════════════════════════════════════════")
 
 	// Check and install gf if needed
@@ -48,7 +47,7 @@ func (s *Scanner) Run(paramsFile, jsFile string) error {
 	// Check other required tools
 	if err := s.checkTools(); err != nil {
 		red.Printf("✗ Missing required tools: %v\n", err)
-		yellow.Println("→ Please install: kxss, dalfox, ghauri")
+		yellow.Println("→ Please install: kxss, dalfox")
 		return err
 	}
 	green.Println("✓ All required tools are available")
@@ -75,14 +74,6 @@ func (s *Scanner) Run(paramsFile, jsFile string) error {
 		cyan.Println("\n→ Starting XSS vulnerability scanning...")
 		if err := s.runXSSScan(paramsFile, jsFile); err != nil {
 			yellow.Printf("⚠ XSS scan error: %v\n", err)
-		}
-	}
-
-	// Run SQLi scanning (only on params)
-	if hasParams {
-		cyan.Println("\n→ Starting SQL injection scanning...")
-		if err := s.runSQLiScan(paramsFile); err != nil {
-			yellow.Printf("⚠ SQLi scan error: %v\n", err)
 		}
 	}
 
@@ -151,7 +142,6 @@ func (s *Scanner) checkTools() error {
 	requiredTools := []string{
 		"kxss",
 		"dalfox",
-		"ghauri",
 	}
 
 	var missing []string
@@ -282,161 +272,6 @@ func (s *Scanner) runXSSScan(paramsFile, jsFile string) error {
 	if s.Verbose && len(output) > 0 {
 		fmt.Println(string(output))
 	}
-
-	return nil
-}
-
-// runSQLiScan performs SQL injection vulnerability scanning
-func (s *Scanner) runSQLiScan(paramsFile string) error {
-	cyan := color.New(color.FgCyan)
-	green := color.New(color.FgGreen)
-	yellow := color.New(color.FgYellow)
-
-	cyan.Println("→ Progress: 0% (Filtering SQLi candidates with gf)")
-
-	// Read params file
-	urls, err := s.readLines(paramsFile)
-	if err != nil || len(urls) == 0 {
-		yellow.Println("⚠ No parameter URLs to scan for SQLi")
-		return nil
-	}
-
-	// Filter URLs with gf for SQLi patterns
-	sqliFilteredFile := filepath.Join(s.OutputDir, "params-filtered-sqli.txt")
-
-	cmd := exec.Command("sh", "-c", fmt.Sprintf("cat %s | gf sqli | sort -u > %s", paramsFile, sqliFilteredFile))
-	if err := cmd.Run(); err != nil {
-		yellow.Printf("⚠ gf filtering failed, using all URLs: %v\n", err)
-		// Use all URLs if gf fails
-		if err := s.writeLines(sqliFilteredFile, urls); err != nil {
-			return err
-		}
-	}
-
-	filteredURLs, err := s.readLines(sqliFilteredFile)
-	if err != nil || len(filteredURLs) == 0 {
-		yellow.Println("⚠ No SQLi candidate URLs found after filtering")
-		return nil
-	}
-
-	cyan.Printf("→ Found %d potential SQLi URLs after filtering\n", len(filteredURLs))
-
-	// Step 1: Run ghauri (fast SQLi scanner)
-	cyan.Println("→ Progress: 30% (Running ghauri for fast SQLi detection)")
-	ghauriResultsFile := filepath.Join(s.OutputDir, "ghauri-results.txt")
-	ghauriVulnFile := filepath.Join(s.OutputDir, "ghauri-vulnerable-urls.txt")
-
-	// Run ghauri with concurrency limit
-	cyan.Printf("→ Scanning %d URLs with ghauri (concurrency: %d)...\n", len(filteredURLs), s.Concurrency)
-
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	vulnerableURLs := []string{}
-	semaphore := make(chan struct{}, s.Concurrency)
-
-	resultsFile, err := os.Create(ghauriResultsFile)
-	if err != nil {
-		return err
-	}
-	defer resultsFile.Close()
-
-	scannedCount := 0
-	totalURLs := len(filteredURLs)
-
-	for _, url := range filteredURLs {
-		wg.Add(1)
-		semaphore <- struct{}{} // Acquire
-
-		go func(targetURL string) {
-			defer wg.Done()
-			defer func() { <-semaphore }() // Release
-
-			// Run ghauri on single URL
-			cmd := exec.Command("ghauri",
-				"-u", targetURL,
-				"--batch",
-				"--level", "1",
-				"--risk", "1",
-			)
-
-			output, err := cmd.CombinedOutput()
-
-			mu.Lock()
-			scannedCount++
-			progress := (scannedCount * 70) / totalURLs // 30% to 100%
-			cyan.Printf("\r→ Progress: %d%% (Scanned %d/%d URLs)", 30+progress, scannedCount, totalURLs)
-
-			// Write output to results file
-			resultsFile.WriteString(fmt.Sprintf("\n=== URL: %s ===\n", targetURL))
-			resultsFile.Write(output)
-
-			// Check if vulnerable
-			outputStr := string(output)
-			if strings.Contains(outputStr, "vulnerable") ||
-			   strings.Contains(outputStr, "injectable") ||
-			   strings.Contains(outputStr, "sqlmap") {
-				vulnerableURLs = append(vulnerableURLs, targetURL)
-			}
-			mu.Unlock()
-
-			if err == nil && s.Verbose {
-				// URL might be vulnerable
-			}
-		}(url)
-	}
-
-	wg.Wait()
-	fmt.Println() // New line after progress
-
-	cyan.Println("→ Progress: 100% (SQLi scanning complete)")
-
-	// Save vulnerable URLs
-	if len(vulnerableURLs) > 0 {
-		if err := s.writeLines(ghauriVulnFile, vulnerableURLs); err != nil {
-			return err
-		}
-
-		green.Printf("✓ Found %d potential SQLi vulnerabilities with ghauri\n", len(vulnerableURLs))
-		green.Printf("✓ Vulnerable URLs saved to: %s\n", ghauriVulnFile)
-		green.Printf("✓ Full ghauri results saved to: %s\n", ghauriResultsFile)
-
-		// Step 2: Confirm critical findings with sqlmap
-		if len(vulnerableURLs) <= 10 { // Only run sqlmap on limited findings
-			cyan.Printf("→ Confirming %d findings with sqlmap (this will take longer)...\n", len(vulnerableURLs))
-			sqlmapResultsFile := filepath.Join(s.OutputDir, "sqlmap-results.txt")
-
-			sqlmapResults, err := os.Create(sqlmapResultsFile)
-			if err != nil {
-				return err
-			}
-			defer sqlmapResults.Close()
-
-			for i, url := range vulnerableURLs {
-				cyan.Printf("→ SQLmap scan %d/%d: %s\n", i+1, len(vulnerableURLs), url)
-
-				cmd := exec.Command("sqlmap",
-					"-u", url,
-					"--batch",
-					"--level", "1",
-					"--risk", "1",
-					"--threads", "5",
-				)
-
-				output, _ := cmd.CombinedOutput()
-				sqlmapResults.WriteString(fmt.Sprintf("\n=== URL: %s ===\n", url))
-				sqlmapResults.Write(output)
-			}
-
-			green.Printf("✓ SQLmap confirmation complete, results saved to: %s\n", sqlmapResultsFile)
-		} else {
-			yellow.Printf("⚠ Too many findings (%d) to confirm with sqlmap, skipping confirmation\n", len(vulnerableURLs))
-			yellow.Println("→ Run sqlmap manually on critical targets from ghauri-vulnerable-urls.txt")
-		}
-	} else {
-		cyan.Println("→ No SQLi vulnerabilities found")
-	}
-
-	green.Printf("✓ Filtered SQLi candidates saved to: %s\n", sqliFilteredFile)
 
 	return nil
 }
