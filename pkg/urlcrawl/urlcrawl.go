@@ -30,15 +30,8 @@ type Scanner struct {
 	GauTimeout          int
 	KatanaTimeout       int
 	KatanaParamsTimeout int
-	WaymoreTimeout      int
 	GospiderTimeout     int
 	WebArchiveTimeout   int
-
-	// Domain limits
-	WaymoreMaxDomains  int
-	GauMaxDomains      int
-	KatanaMaxDomains   int
-	GospiderMaxDomains int
 }
 
 // NewScanner creates a new URL crawler
@@ -49,21 +42,14 @@ func NewScanner(outputDir string) *Scanner {
 		GospiderThreads: 10,   // reasonable concurrency
 		Verbose:         true,
 
-		// Default timeouts (10 hours for phase, various for tools)
+		// Default timeouts (10 hours for phase, 5 hours per tool)
 		PhaseTimeout:        600, // 10 hours
-		WaybackurlsTimeout:  30,
-		GauTimeout:          30,
-		KatanaTimeout:       60,
-		KatanaParamsTimeout: 60,
-		WaymoreTimeout:      10,
-		GospiderTimeout:     60,
-		WebArchiveTimeout:   30,
-
-		// Default domain limits
-		WaymoreMaxDomains:  100,
-		GauMaxDomains:      200,
-		KatanaMaxDomains:   150,
-		GospiderMaxDomains: 100,
+		WaybackurlsTimeout:  300, // 5 hours
+		GauTimeout:          300, // 5 hours
+		KatanaTimeout:       300, // 5 hours
+		KatanaParamsTimeout: 300, // 5 hours
+		GospiderTimeout:     300, // 5 hours
+		WebArchiveTimeout:   300, // 5 hours
 	}
 }
 
@@ -251,7 +237,6 @@ func (s *Scanner) checkTools() error {
 		"waybackurls",
 		"gau",
 		"katana",
-		"waymore",
 		"gospider",
 		"httpx",
 		"uro",
@@ -282,7 +267,7 @@ func (s *Scanner) runAllTools(subdomains []string, tempDir string) ([]string, er
 	var mu sync.Mutex
 	allURLs := []string{}
 	completedTools := 0
-	totalTools := 7 // waybackurls, gau, katana, katana-params, waymore, gospider, webarchive-cdx
+	totalTools := 6 // waybackurls, gau, katana, katana-params, gospider, webarchive-cdx
 
 	// Tool runner helper
 	runTool := func(name string, runner func() ([]string, error)) {
@@ -334,12 +319,6 @@ func (s *Scanner) runAllTools(subdomains []string, tempDir string) ([]string, er
 			return s.runKatanaParams(subdomains, tempDir)
 		})
 	}
-
-	// Run waymore
-	wg.Add(1)
-	go runTool("waymore", func() ([]string, error) {
-		return s.runWaymore(subdomains, tempDir)
-	})
 
 	// Run gospider
 	if s.EnableActive {
@@ -427,13 +406,6 @@ func (s *Scanner) runGau(subdomains []string, tempDir string) ([]string, error) 
 		cleanDomains = append(cleanDomains, domain)
 	}
 
-	// Limit domains for gau
-	if s.GauMaxDomains > 0 && len(cleanDomains) > s.GauMaxDomains {
-		yellow := color.New(color.FgYellow)
-		yellow.Printf("  → Limiting gau to first %d domains (out of %d)\n", s.GauMaxDomains, len(cleanDomains))
-		cleanDomains = cleanDomains[:s.GauMaxDomains]
-	}
-
 	if err := s.writeLines(inputFile, cleanDomains); err != nil {
 		return nil, err
 	}
@@ -484,15 +456,7 @@ func (s *Scanner) runKatana(subdomains []string, tempDir string) ([]string, erro
 	outputFile := filepath.Join(tempDir, "katana.txt")
 	inputFile := filepath.Join(tempDir, "katana-input.txt")
 
-	// Limit domains for katana
-	limitedSubdomains := subdomains
-	if s.KatanaMaxDomains > 0 && len(subdomains) > s.KatanaMaxDomains {
-		yellow := color.New(color.FgYellow)
-		yellow.Printf("  → Limiting katana to first %d domains (out of %d)\n", s.KatanaMaxDomains, len(subdomains))
-		limitedSubdomains = subdomains[:s.KatanaMaxDomains]
-	}
-
-	if err := s.writeLines(inputFile, limitedSubdomains); err != nil {
+	if err := s.writeLines(inputFile, subdomains); err != nil {
 		return nil, err
 	}
 
@@ -535,13 +499,7 @@ func (s *Scanner) runKatanaParams(subdomains []string, tempDir string) ([]string
 	outputFile := filepath.Join(tempDir, "katana-params.txt")
 	inputFile := filepath.Join(tempDir, "katana-params-input.txt")
 
-	// Limit domains for katana-params
-	limitedSubdomains := subdomains
-	if s.KatanaMaxDomains > 0 && len(subdomains) > s.KatanaMaxDomains {
-		limitedSubdomains = subdomains[:s.KatanaMaxDomains]
-	}
-
-	if err := s.writeLines(inputFile, limitedSubdomains); err != nil {
+	if err := s.writeLines(inputFile, subdomains); err != nil {
 		return nil, err
 	}
 
@@ -575,65 +533,6 @@ func (s *Scanner) runKatanaParams(subdomains []string, tempDir string) ([]string
 	return s.readLines(outputFile)
 }
 
-// runWaymore runs waymore for deep archive search with timeout and domain limit
-func (s *Scanner) runWaymore(subdomains []string, tempDir string) ([]string, error) {
-	outputFile := filepath.Join(tempDir, "waymore.txt")
-	inputFile := filepath.Join(tempDir, "waymore-input.txt")
-
-	// Clean domains for waymore
-	cleanDomains := []string{}
-	for _, sub := range subdomains {
-		domain := strings.TrimPrefix(sub, "https://")
-		domain = strings.TrimPrefix(domain, "http://")
-		domain = strings.Split(domain, "/")[0]
-		cleanDomains = append(cleanDomains, domain)
-	}
-
-	// Limit number of domains to prevent hanging
-	if s.WaymoreMaxDomains > 0 && len(cleanDomains) > s.WaymoreMaxDomains {
-		yellow := color.New(color.FgYellow)
-		yellow.Printf("  → Limiting waymore to first %d domains (out of %d) to prevent timeout\n", s.WaymoreMaxDomains, len(cleanDomains))
-		cleanDomains = cleanDomains[:s.WaymoreMaxDomains]
-	}
-
-	if err := s.writeLines(inputFile, cleanDomains); err != nil {
-		return nil, err
-	}
-
-	// Create context with timeout
-	timeout := time.Duration(s.WaymoreTimeout) * time.Minute
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "waymore",
-		"-i", inputFile,
-		"-n",         // no downloads
-		"-mode", "U", // URLs only
-	)
-
-	output, err := cmd.Output()
-	if err != nil {
-		// Check if timeout occurred
-		if ctx.Err() == context.DeadlineExceeded {
-			yellow := color.New(color.FgYellow)
-			yellow.Printf("  ⚠ waymore timed out after %d minutes (processed partial results)\n", s.WaymoreTimeout)
-			// Try to use partial output if available
-			if len(output) > 0 {
-				os.WriteFile(outputFile, output, 0644)
-				return s.readLines(outputFile)
-			}
-			return []string{}, nil // Return empty but don't fail
-		}
-		return nil, err
-	}
-
-	if err := os.WriteFile(outputFile, output, 0644); err != nil {
-		return nil, err
-	}
-
-	return s.readLines(outputFile)
-}
-
 // runGospider runs gospider for spidering with timeout
 func (s *Scanner) runGospider(subdomains []string, tempDir string) ([]string, error) {
 	outputFile := filepath.Join(tempDir, "gospider.txt")
@@ -642,14 +541,6 @@ func (s *Scanner) runGospider(subdomains []string, tempDir string) ([]string, er
 		return nil, err
 	}
 	defer file.Close()
-
-	// Limit domains for gospider
-	limitedSubdomains := subdomains
-	if s.GospiderMaxDomains > 0 && len(subdomains) > s.GospiderMaxDomains {
-		yellow := color.New(color.FgYellow)
-		yellow.Printf("  → Limiting gospider to first %d domains (out of %d)\n", s.GospiderMaxDomains, len(subdomains))
-		limitedSubdomains = subdomains[:s.GospiderMaxDomains]
-	}
 
 	// Create context with timeout
 	timeout := time.Duration(s.GospiderTimeout) * time.Minute
@@ -661,7 +552,7 @@ func (s *Scanner) runGospider(subdomains []string, tempDir string) ([]string, er
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
-	for _, subdomain := range limitedSubdomains {
+	for _, subdomain := range subdomains {
 		// Check if context is cancelled
 		select {
 		case <-ctx.Done():

@@ -40,15 +40,8 @@ type Config struct {
 	GauTimeout          int
 	KatanaTimeout       int
 	KatanaParamsTimeout int
-	WaymoreTimeout      int
 	GospiderTimeout     int
 	WebArchiveTimeout   int
-
-	// Domain Limits
-	WaymoreMaxDomains  int
-	GauMaxDomains      int
-	KatanaMaxDomains   int
-	GospiderMaxDomains int
 }
 
 // Load loads configuration from .env file and environment variables
@@ -70,20 +63,13 @@ func Load() (*Config, error) {
 		CloudEnumTimeout:     60, // 1 hour
 		NucleiScanTimeout:    600,
 
-		// Individual Tool Timeouts
-		WaybackurlsTimeout:  30,
-		GauTimeout:          30,
-		KatanaTimeout:       60,
-		KatanaParamsTimeout: 60,
-		WaymoreTimeout:      10,
-		GospiderTimeout:     60,
-		WebArchiveTimeout:   30,
-
-		// Domain Limits
-		WaymoreMaxDomains:  100,
-		GauMaxDomains:      200,
-		KatanaMaxDomains:   150,
-		GospiderMaxDomains: 100,
+		// Individual Tool Timeouts (5 hours each)
+		WaybackurlsTimeout:  300,
+		GauTimeout:          300,
+		KatanaTimeout:       300,
+		KatanaParamsTimeout: 300,
+		GospiderTimeout:     300,
+		WebArchiveTimeout:   300,
 	}
 
 	// Try to find .env file
@@ -133,15 +119,8 @@ func Load() (*Config, error) {
 	cfg.GauTimeout = getEnvInt("GAU_TIMEOUT", cfg.GauTimeout)
 	cfg.KatanaTimeout = getEnvInt("KATANA_TIMEOUT", cfg.KatanaTimeout)
 	cfg.KatanaParamsTimeout = getEnvInt("KATANA_PARAMS_TIMEOUT", cfg.KatanaParamsTimeout)
-	cfg.WaymoreTimeout = getEnvInt("WAYMORE_TIMEOUT", cfg.WaymoreTimeout)
 	cfg.GospiderTimeout = getEnvInt("GOSPIDER_TIMEOUT", cfg.GospiderTimeout)
 	cfg.WebArchiveTimeout = getEnvInt("WEBARCHIVE_TIMEOUT", cfg.WebArchiveTimeout)
-
-	// Domain Limits
-	cfg.WaymoreMaxDomains = getEnvInt("WAYMORE_MAX_DOMAINS", cfg.WaymoreMaxDomains)
-	cfg.GauMaxDomains = getEnvInt("GAU_MAX_DOMAINS", cfg.GauMaxDomains)
-	cfg.KatanaMaxDomains = getEnvInt("KATANA_MAX_DOMAINS", cfg.KatanaMaxDomains)
-	cfg.GospiderMaxDomains = getEnvInt("GOSPIDER_MAX_DOMAINS", cfg.GospiderMaxDomains)
 
 	// Validate critical settings
 	if cfg.ShodanAPIKey == "" {

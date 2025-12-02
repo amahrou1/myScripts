@@ -194,15 +194,8 @@ func main() {
 		urlscanner.GauTimeout = cfg.GauTimeout
 		urlscanner.KatanaTimeout = cfg.KatanaTimeout
 		urlscanner.KatanaParamsTimeout = cfg.KatanaParamsTimeout
-		urlscanner.WaymoreTimeout = cfg.WaymoreTimeout
 		urlscanner.GospiderTimeout = cfg.GospiderTimeout
 		urlscanner.WebArchiveTimeout = cfg.WebArchiveTimeout
-
-		// Apply domain limits
-		urlscanner.WaymoreMaxDomains = cfg.WaymoreMaxDomains
-		urlscanner.GauMaxDomains = cfg.GauMaxDomains
-		urlscanner.KatanaMaxDomains = cfg.KatanaMaxDomains
-		urlscanner.GospiderMaxDomains = cfg.GospiderMaxDomains
 
 		// Apply API keys
 		urlscanner.VirusTotalKey = cfg.VirusTotalKey
