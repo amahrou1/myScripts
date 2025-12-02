@@ -53,9 +53,6 @@ func CheckDependencies(verbose bool) error {
 		{Name: "slurp", Command: "slurp", Required: false, Description: "S3 bucket finder"},
 		{Name: "cloud_enum", Command: "cloud_enum", Required: false, Description: "Cloud enumeration"},
 
-		// Directory fuzzing
-		{Name: "ffuf", Command: "ffuf", Required: false, Description: "Web fuzzing"},
-
 		// Shodan
 		{Name: "shodan", Command: "shodan", Required: false, Description: "Shodan CLI"},
 	}

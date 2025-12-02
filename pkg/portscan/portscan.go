@@ -245,6 +245,11 @@ func (s *Scanner) parseNmapResults(outputFile string) ([]string, error) {
 	var results []string
 	scanner := bufio.NewScanner(file)
 
+	// Increase buffer size to handle very long lines (default is 64KB, increase to 1MB)
+	const maxCapacity = 1024 * 1024 // 1MB
+	buf := make([]byte, maxCapacity)
+	scanner.Buffer(buf, maxCapacity)
+
 	for scanner.Scan() {
 		line := scanner.Text()
 
@@ -383,7 +388,42 @@ func (s *Scanner) cleanTarget(target string) string {
 		return ""
 	}
 
+	// Filter out invalid IPs that cause nmap issues
+	if s.isInvalidIP(cleaned) {
+		return ""
+	}
+
 	return cleaned
+}
+
+// isInvalidIP checks if an IP address is invalid or reserved
+func (s *Scanner) isInvalidIP(target string) bool {
+	// Check for invalid/reserved IPs that cause nmap issues
+	invalidIPs := []string{
+		"0.0.0.0",
+		"127.0.0.1",
+		"127.0.0.0",
+		"localhost",
+		"255.255.255.255",
+	}
+
+	for _, invalid := range invalidIPs {
+		if target == invalid {
+			return true
+		}
+	}
+
+	// Check for localhost range (127.x.x.x)
+	if strings.HasPrefix(target, "127.") {
+		return true
+	}
+
+	// Check for 0.0.0.0 range
+	if strings.HasPrefix(target, "0.") {
+		return true
+	}
+
+	return false
 }
 
 // writeLines writes lines to a file

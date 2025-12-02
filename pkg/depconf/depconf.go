@@ -398,6 +398,7 @@ func (d *Detector) cleanPackageName(name string) string {
 }
 
 // isValidPackageName checks if a string is a valid npm package name
+// This is VERY strict to avoid false positives from webpack module IDs, variables, constants, etc.
 func (d *Detector) isValidPackageName(name string) bool {
 	if name == "" || len(name) > 214 {
 		return false
@@ -408,11 +409,77 @@ func (d *Detector) isValidPackageName(name string) bool {
 		return false
 	}
 
+	// Skip numeric-only strings (webpack module IDs, timestamps, etc.)
+	// Example: 5898623200788480
+	isNumeric := true
+	for _, c := range name {
+		if c < '0' || c > '9' {
+			isNumeric = false
+			break
+		}
+	}
+	if isNumeric {
+		return false
+	}
+
+	// Skip short random-looking strings (webpack module IDs)
+	// Examples: 0XgM, 2W6z, 9W6o, 4Mzw, 5bA4, 0Owb, WU/Z
+	if len(name) <= 6 {
+		// Check if it looks like a random webpack ID (mixed case, numbers, short)
+		hasUpper := false
+		hasLower := false
+		for _, c := range name {
+			if c >= 'A' && c <= 'Z' {
+				hasUpper = true
+			}
+			if c >= 'a' && c <= 'z' {
+				hasLower = true
+			}
+		}
+		// If it has mixed case or starts with a number, it's likely a webpack ID
+		if (hasUpper && hasLower) || (name[0] >= '0' && name[0] <= '9') {
+			return false
+		}
+	}
+
+	// Skip ALL_CAPS constants (YAML, CHILD, PSEUDO, STYLE_SEPARATOR, etc.)
+	isAllCaps := true
+	for _, c := range name {
+		if c >= 'a' && c <= 'z' {
+			isAllCaps = false
+			break
+		}
+	}
+	if isAllCaps && !strings.HasPrefix(name, "@") {
+		return false
+	}
+
+	// Skip camelCase variable names (recoveryToken, siteKey, errorId, clientURI, isDef)
+	// Real npm packages use lowercase or kebab-case, not camelCase
+	if !strings.HasPrefix(name, "@") {
+		hasUpperInMiddle := false
+		for i, c := range name {
+			if i > 0 && c >= 'A' && c <= 'Z' {
+				hasUpperInMiddle = true
+				break
+			}
+		}
+		if hasUpperInMiddle {
+			return false
+		}
+	}
+
+	// Skip PascalCase words (Opera, TitleAndAccessibilities)
+	if len(name) > 0 && name[0] >= 'A' && name[0] <= 'Z' && !strings.HasPrefix(name, "@") {
+		return false
+	}
+
 	// Skip built-in Node.js modules
 	builtins := []string{
 		"fs", "path", "http", "https", "crypto", "util", "os", "events",
 		"stream", "buffer", "child_process", "cluster", "dns", "net",
 		"tls", "url", "querystring", "zlib", "assert", "console",
+		"module", "process", "global", "require",
 	}
 	for _, builtin := range builtins {
 		if name == builtin {
@@ -431,18 +498,38 @@ func (d *Detector) isValidPackageName(name string) bool {
 		if len(parts) != 2 || parts[1] == "" {
 			return false
 		}
+		// The package name part must still be lowercase
+		if parts[1] != strings.ToLower(parts[1]) {
+			return false
+		}
+	}
+
+	// Real npm packages should be lowercase or contain hyphens
+	// Examples: lodash, react-router-dom, @babel/core
+	if !strings.HasPrefix(name, "@") && name != strings.ToLower(name) {
+		return false
 	}
 
 	return true
 }
 
-// isCommonWord filters out common English words that might appear
+// isCommonWord filters out common English words and code artifacts that might appear
 func (d *Detector) isCommonWord(name string) bool {
 	commonWords := []string{
 		"index", "main", "app", "common", "utils", "helpers", "config",
 		"test", "tests", "lib", "src", "dist", "build", "public",
 		"static", "assets", "components", "services", "models", "views",
 		"controllers", "routes", "middleware", "plugins", "modules",
+		// Common variable/function names
+		"data", "props", "state", "value", "key", "id", "name", "type",
+		"options", "settings", "params", "args", "result", "response",
+		"request", "error", "callback", "handler", "context", "scope",
+		// Code artifacts
+		"default", "export", "import", "module", "exports", "webpack",
+		"undefined", "null", "true", "false", "function", "class",
+		"const", "let", "var", "return", "this", "self", "window",
+		"document", "global", "process", "console", "object", "array",
+		"string", "number", "boolean", "symbol", "map", "set",
 	}
 
 	nameLower := strings.ToLower(name)

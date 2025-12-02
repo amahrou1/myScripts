@@ -187,7 +187,7 @@ func main() {
 
 	// Run URL Crawling if not skipped
 	if !*skipUrlcrawl {
-		urlscanner := urlcrawl.NewScanner(outputDir)
+		urlscanner := urlcrawl.NewScanner(outputDir, *domain)
 		liveSubsFile := filepath.Join(outputDir, "live-subdomains.txt")
 
 		// Apply config settings - global phase timeout
@@ -460,13 +460,13 @@ func showHelp() {
 	white.Println("  params.txt                  - Live URLs with parameters")
 	white.Println("  live-js.txt                 - Live JavaScript files")
 	white.Println("  sensitive-files.txt         - Sensitive files (.env, .json, etc.)")
+	white.Println("  js-secrets.txt              - Secrets/API keys from JS files")
+	white.Println("  endpoints-fuzzing.txt       - API endpoints extracted from JS for fuzzing")
+	white.Println("  links-js.txt                - Live domain-specific links from JS files")
+	white.Println("  dependency-confusion.txt    - ⚠ CRITICAL: Unclaimed NPM packages")
 	white.Println("  params-filtered-xss.txt     - XSS candidate URLs (filtered with gf)")
-	white.Println("  params-filtered-sqli.txt    - SQLi candidate URLs (filtered with gf)")
 	white.Println("  kxss-results.txt            - kxss scan results (potential XSS)")
 	white.Println("  xss-vulnerable.txt          - Confirmed XSS vulnerabilities (dalfox)")
-	white.Println("  ghauri-results.txt          - Ghauri SQLi scan results")
-	white.Println("  ghauri-vulnerable-urls.txt  - Confirmed SQLi vulnerabilities (ghauri)")
-	white.Println("  sqlmap-results.txt          - SQLmap confirmation results")
 	white.Println("  open-ports.txt              - Open ports (verified with httpx)")
 	white.Println("  cloud-resources.txt         - Discovered cloud resources")
 	white.Println("  nuclei-results.txt          - Nuclei vulnerability scan results")
@@ -475,8 +475,10 @@ func showHelp() {
 
 	yellow.Println("\nTOOLS USED:")
 	white.Println("  • Subdomain Discovery: subfinder, amass, assetfinder, findomain, massdns")
-	white.Println("  • URL Crawling: waybackurls, gau, katana, waymore, gospider")
-	white.Println("  • Vulnerability Scanning: gf, kxss, dalfox, ghauri, sqlmap")
+	white.Println("  • URL Crawling: waybackurls, gau, katana, gospider")
+	white.Println("  • JavaScript Analysis: jsluice, trufflehog (secrets, endpoints, domain links)")
+	white.Println("  • Dependency Confusion: NPM registry verification (supply chain attacks)")
+	white.Println("  • Vulnerability Scanning: gf, kxss, dalfox (XSS only)")
 	white.Println("  • Cloud Enumeration: slurp, cloud_enum")
 	white.Println("  • Port Scanning: nmap")
 	white.Println("  • Verification: httpx")
