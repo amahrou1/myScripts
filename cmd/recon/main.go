@@ -10,6 +10,7 @@ import (
 
 	"github.com/amahrou1/myScripts/pkg/cloudenum"
 	"github.com/amahrou1/myScripts/pkg/config"
+	"github.com/amahrou1/myScripts/pkg/depconf"
 	"github.com/amahrou1/myScripts/pkg/jsanalysis"
 	"github.com/amahrou1/myScripts/pkg/logger"
 	"github.com/amahrou1/myScripts/pkg/nuclei"
@@ -44,6 +45,7 @@ func main() {
 	skipVhost := flag.Bool("skip-vhost", false, "Skip VHost fuzzing (faster)")
 	skipUrlcrawl := flag.Bool("skip-urlcrawl", false, "Skip URL crawling")
 	skipJSAnalysis := flag.Bool("skip-jsanalysis", false, "Skip JavaScript file analysis")
+	skipDepConf := flag.Bool("skip-depconf", false, "Skip dependency confusion detection")
 	skipVulnscan := flag.Bool("skip-vulnscan", false, "Skip vulnerability scanning (XSS & SQLi)")
 	skipCloudenum := flag.Bool("skip-cloudenum", false, "Skip cloud enumeration")
 	skipPortscan := flag.Bool("skip-portscan", false, "Skip port scanning")
@@ -234,6 +236,24 @@ func main() {
 		logger.Info("JavaScript analysis skipped by user")
 	}
 
+	// Run Dependency Confusion Detection if not skipped
+	if !*skipDepConf && !*skipUrlcrawl {
+		depconfDetector := depconf.NewDetector(outputDir, *domain)
+		liveJSFile := filepath.Join(outputDir, "live-js.txt")
+
+		if err := depconfDetector.Run(liveJSFile); err != nil {
+			logger.Error("Dependency confusion detection failed: %v", err)
+			color.Red("\n✗ Dependency confusion detection error: %v\n", err)
+			// Don't exit - depconf errors are not critical
+		} else {
+			logger.Info("Dependency confusion detection completed successfully")
+		}
+	} else if *skipDepConf {
+		yellow := color.New(color.FgYellow, color.Bold)
+		yellow.Println("\n[STEP 2.4] Dependency Confusion Detection - SKIPPED (use without -skip-depconf to enable)")
+		logger.Info("Dependency confusion detection skipped by user")
+	}
+
 	// Run Vulnerability Scanning if not skipped
 	if !*skipVulnscan && !*skipUrlcrawl {
 		vulnscanner := vulnscan.NewScanner(outputDir)
@@ -400,6 +420,8 @@ func showHelp() {
 	white.Println("      Skip URL crawling and discovery")
 	white.Println("  -skip-jsanalysis")
 	white.Println("      Skip JavaScript file analysis (secrets, endpoints, domain links)")
+	white.Println("  -skip-depconf")
+	white.Println("      Skip dependency confusion detection (supply chain attack detection)")
 	white.Println("  -skip-vulnscan")
 	white.Println("      Skip vulnerability scanning (XSS)")
 	white.Println("  -skip-cloudenum")
