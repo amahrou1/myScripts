@@ -148,14 +148,6 @@ A supply chain attack where attackers exploit how package managers resolve depen
 - **Optional `-skip-portscan` flag**
 - **Configurable Timeout** - 10-hour max (configurable via `.env`)
 
-### ✅ Step 4: Directory Fuzzing
-
-- **ffuf Integration** - Fast directory/file discovery
-- **Smart Filtering** - Reduces false positives
-- **Concurrent Fuzzing** - Multiple targets in parallel
-- **Auto-calibration** - Accurate results
-- **Timeout Management** - Prevents hanging
-
 ### ✅ Bonus: Cloud Enumeration
 
 - **S3 Bucket Discovery** - Uses slurp for bucket permutations
@@ -216,9 +208,6 @@ gf kxss dalfox
 
 # Cloud enumeration (required for -skip-cloudenum=false)
 slurp cloud_enum
-
-# Directory fuzzing (required for -skip-dirfuzz=false)
-ffuf
 
 # Nuclei (required for -skip-nuclei=false)
 nuclei

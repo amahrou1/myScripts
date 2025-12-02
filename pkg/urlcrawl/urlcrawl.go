@@ -16,6 +16,7 @@ import (
 
 type Scanner struct {
 	OutputDir         string
+	Domain            string // Target domain for filtering
 	VirusTotalKey     string
 	OTXKey            string
 	EnableActive      bool
@@ -35,9 +36,10 @@ type Scanner struct {
 }
 
 // NewScanner creates a new URL crawler
-func NewScanner(outputDir string) *Scanner {
+func NewScanner(outputDir, domain string) *Scanner {
 	return &Scanner{
 		OutputDir:       outputDir,
+		Domain:          domain,
 		EnableActive:    true, // katana enabled by default
 		GospiderThreads: 10,   // reasonable concurrency
 		Verbose:         true,
@@ -768,14 +770,50 @@ func (s *Scanner) filterParamURLs(urls []string) ([]string, error) {
 	return paramURLs, nil
 }
 
-// filterJSURLs filters JavaScript files
+// filterJSURLs filters JavaScript files belonging to target domain only
 func (s *Scanner) filterJSURLs(urls []string) ([]string, error) {
 	var jsURLs []string
 
 	for _, url := range urls {
 		url = strings.TrimSpace(url)
+		if url == "" {
+			continue
+		}
+
 		// Match .js extension (but not .json)
-		if strings.Contains(url, ".js") && !strings.Contains(url, ".json") {
+		if !strings.Contains(url, ".js") || strings.Contains(url, ".json") {
+			continue
+		}
+
+		// Extract domain from URL and check if it belongs to target
+		// URL format: https://subdomain.example.com/path
+		urlLower := strings.ToLower(url)
+
+		// Remove protocol
+		domainPart := url
+		if strings.HasPrefix(urlLower, "http://") {
+			domainPart = url[7:]
+		} else if strings.HasPrefix(urlLower, "https://") {
+			domainPart = url[8:]
+		}
+
+		// Extract hostname (everything before first /)
+		slashIdx := strings.Index(domainPart, "/")
+		if slashIdx > 0 {
+			domainPart = domainPart[:slashIdx]
+		}
+
+		// Remove port if present
+		colonIdx := strings.Index(domainPart, ":")
+		if colonIdx > 0 {
+			domainPart = domainPart[:colonIdx]
+		}
+
+		// Check if domain matches target domain or is a subdomain of target
+		domainPartLower := strings.ToLower(domainPart)
+		targetLower := strings.ToLower(s.Domain)
+
+		if domainPartLower == targetLower || strings.HasSuffix(domainPartLower, "."+targetLower) {
 			jsURLs = append(jsURLs, url)
 		}
 	}
