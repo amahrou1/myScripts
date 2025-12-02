@@ -76,6 +76,59 @@ A fast, efficient, and scalable reconnaissance framework for bug bounty hunting,
 
 **Optional**: Use `-skip-jsanalysis` to skip this step
 
+### ✅ Step 2.4: Dependency Confusion Detection 🚨
+
+**CRITICAL**: Supply chain attack detection! Finds internal NPM packages that could be hijacked by attackers.
+
+**What is Dependency Confusion?**
+A supply chain attack where attackers exploit how package managers resolve dependencies. If your build system uses an internal package like `company-auth` that isn't published on npm, an attacker can:
+1. Publish a malicious package with the same name on public npm
+2. Assign it a higher version number (e.g., 99.99.99)
+3. Your build system installs the malicious package → **Remote Code Execution (RCE)**
+
+**Real-World Impact:**
+- ✅ **Alex Birsan** earned $130K+ from Apple, Microsoft, PayPal, Netflix, Shopify, Tesla, Yelp, Uber using this technique
+- ✅ Companies lost internal secrets, API keys, AWS credentials
+- ✅ Attackers gained RCE in CI/CD pipelines
+
+**How It Works:**
+
+1. **Extraction from JavaScript Files**:
+   - `node_modules/package-name/lib/file.js` patterns
+   - `require("package-name")` statements
+   - `import from "package-name"` statements
+   - Embedded package.json content
+   - Webpack module IDs
+
+2. **Source Map Analysis** (.map files):
+   - Downloads and parses .js.map files
+   - Extracts full internal paths like: `../node_modules/@company/internal-api/lib/auth.js`
+   - **Why source maps?** They reveal original, unminified code structure
+
+3. **NPM Registry Verification**:
+   - Checks each package against `https://registry.npmjs.org/package-name`
+   - If returns 404 → Package doesn't exist publicly → **CRITICAL FINDING**
+   - Concurrent checking (10 packages at a time)
+
+**Output:** `dependency-confusion.txt`
+- Lists ALL unclaimed packages found
+- Shows which JS file referenced each package
+- Includes npm verification links
+- **You manually verify and reserve these names ASAP**
+
+**Why This Matters:**
+- Internal packages in production JS = Attack surface
+- Most companies don't realize their internal names are exposed
+- Easy to exploit, hard to defend against
+- Can lead to complete infrastructure compromise
+
+**Optional**: Use `-skip-depconf` to skip this step
+
+**Learn More:**
+- [Alex Birsan's Original Research](https://medium.com/@alex.birsan/dependency-confusion-4a5d60fec610)
+- [What is NPM Dependency Confusion (2025 Guide)](https://blogs.jsmon.sh/npm-dependency-confusion-organization-namespaces-2025/)
+- [Snyk: Detect and Prevent Dependency Confusion](https://snyk.io/blog/detect-prevent-dependency-confusion-attacks-npm-supply-chain-security/)
+
 ### ✅ Step 2.5: Vulnerability Scanning (XSS)
 
 - **XSS Detection Pipeline**:
@@ -334,6 +387,7 @@ results/
 ├── js-secrets.txt                      # Secrets/API keys from JS files
 ├── endpoints-fuzzing.txt               # API endpoints for fuzzing
 ├── links-js.txt                        # Live domain-specific links from JS
+├── dependency-confusion.txt            # ⚠ CRITICAL: Unclaimed NPM packages (supply chain risk!)
 ├── params-filtered-xss.txt             # XSS candidate URLs (gf filtered)
 ├── kxss-results.txt                    # kxss scan results
 ├── xss-vulnerable.txt                  # Confirmed XSS vulnerabilities
@@ -359,11 +413,12 @@ The tool executes the following workflow:
 6. **VHost Fuzzing** → Discover hidden subdomains (optional)
 7. **URL Crawling** → 6 tools in parallel with 5-hour timeouts
 8. **JavaScript Analysis** → Secrets, endpoints, domain links (optional)
-9. **Vulnerability Scanning** → XSS detection (optional)
-10. **Cloud Enumeration** → S3/Azure/GCP discovery (optional)
-11. **Port Scanning** → Top 5000 ports with nmap (optional)
-12. **Directory Fuzzing** → ffuf-based discovery (optional)
-13. **Nuclei Scanning** → Template-based vuln scanning (optional)
+9. **Dependency Confusion** → Detect unclaimed NPM packages (optional but recommended!)
+10. **Vulnerability Scanning** → XSS detection (optional)
+11. **Cloud Enumeration** → S3/Azure/GCP discovery (optional)
+12. **Port Scanning** → Top 5000 ports with nmap (optional)
+13. **Directory Fuzzing** → ffuf-based discovery (optional)
+14. **Nuclei Scanning** → Template-based vuln scanning (optional)
 
 **Each phase has configurable timeouts to prevent indefinite hanging.**
 
