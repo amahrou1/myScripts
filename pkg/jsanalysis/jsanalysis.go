@@ -273,12 +273,20 @@ func (a *Analyzer) extractEndpoints(jsURLs []string) error {
 				return
 			}
 
-			// Extract endpoints using jsluice
+			// Method 1: Extract endpoints using jsluice and regex patterns
 			endpoints := a.extractEndpointsFromContent(content)
+
+			// Method 2: Extract quoted endpoints using grep-like pattern matching
+			// This catches patterns like "/api/endpoint" in quotes
+			quotedEndpoints := a.extractQuotedEndpoints(content)
 
 			mu.Lock()
 			totalProcessed++
+			// Add all endpoints from both methods
 			for _, endpoint := range endpoints {
+				endpointMap[endpoint] = true
+			}
+			for _, endpoint := range quotedEndpoints {
 				endpointMap[endpoint] = true
 			}
 			cyan.Printf("\r→ Progress: %d/%d files processed, %d unique endpoints found", totalProcessed, len(jsURLs), len(endpointMap))
@@ -536,6 +544,42 @@ func (a *Analyzer) extractEndpointsFromContent(content string) []string {
 	}
 
 	// Convert map to slice
+	for endpoint := range endpointMap {
+		endpoints = append(endpoints, endpoint)
+	}
+
+	return endpoints
+}
+
+// extractQuotedEndpoints extracts endpoints from quoted strings in JS content
+// This matches patterns like "/api/endpoint" and extracts clean paths
+func (a *Analyzer) extractQuotedEndpoints(content string) []string {
+	endpointMap := make(map[string]bool)
+
+	// Pattern to match quoted strings starting with / (like grep -oh "\"\/[a-zA-Z0-9_/?=&]*\"")
+	// Matches: "/api/v1/users", "/endpoint?param=value", etc.
+	quotedPathPattern := regexp.MustCompile(`"(\/[a-zA-Z0-9_\-/?=&]+)"`)
+
+	matches := quotedPathPattern.FindAllStringSubmatch(content, -1)
+	for _, match := range matches {
+		if len(match) > 1 {
+			endpoint := match[1] // Get the captured group (without quotes)
+
+			// Remove leading / (like sed 's#^/##')
+			endpoint = strings.TrimPrefix(endpoint, "/")
+
+			// Clean the endpoint (remove query params, fragments)
+			endpoint = a.cleanEndpoint(endpoint)
+
+			// Only add non-empty, valid endpoints
+			if endpoint != "" && endpoint != "/" {
+				endpointMap[endpoint] = true
+			}
+		}
+	}
+
+	// Convert map to slice
+	endpoints := make([]string, 0, len(endpointMap))
 	for endpoint := range endpointMap {
 		endpoints = append(endpoints, endpoint)
 	}
