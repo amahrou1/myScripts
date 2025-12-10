@@ -292,7 +292,9 @@ func main() {
 	// Run Port Scanning if not skipped
 	if !*skipPortscan {
 		portscanner := portscan.NewScanner(outputDir)
-		portscanner.TopPorts = cfg.NmapTopPorts // Use configured port count
+		portscanner.TopPorts = cfg.NmapTopPorts       // Use configured port count
+		portscanner.HostTimeout = cfg.NmapHostTimeout // Use configured per-host timeout
+		portscanner.Timeout = cfg.PortScanTimeout     // Use configured global timeout (10 hours)
 		liveSubsFile := filepath.Join(outputDir, "live-subdomains.txt")
 		shodanIPsFile := filepath.Join(outputDir, "shodan-ips.txt")
 
