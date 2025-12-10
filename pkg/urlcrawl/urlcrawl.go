@@ -741,13 +741,17 @@ func (s *Scanner) simpleDedup(urls []string) []string {
 	return unique
 }
 
-// filterParamURLs filters URLs that contain parameters
+// filterParamURLs filters URLs that contain parameters belonging to target domain only
 func (s *Scanner) filterParamURLs(urls []string) ([]string, error) {
 	var paramURLs []string
 	staticExts := []string{".jpg", ".jpeg", ".gif", ".css", ".tif", ".tiff", ".png", ".ttf", ".woff", ".woff2", ".ico", ".pdf", ".svg", ".txt", ".js"}
 
 	for _, url := range urls {
 		url = strings.TrimSpace(url)
+		if url == "" {
+			continue
+		}
+
 		if !strings.Contains(url, "=") {
 			continue // No parameters
 		}
@@ -762,7 +766,36 @@ func (s *Scanner) filterParamURLs(urls []string) ([]string, error) {
 			}
 		}
 
-		if !isStatic {
+		if isStatic {
+			continue
+		}
+
+		// Extract domain from URL and check if it belongs to target
+		// Remove protocol
+		domainPart := url
+		if strings.HasPrefix(urlLower, "http://") {
+			domainPart = url[7:]
+		} else if strings.HasPrefix(urlLower, "https://") {
+			domainPart = url[8:]
+		}
+
+		// Extract hostname (everything before first /)
+		slashIdx := strings.Index(domainPart, "/")
+		if slashIdx > 0 {
+			domainPart = domainPart[:slashIdx]
+		}
+
+		// Remove port if present
+		colonIdx := strings.Index(domainPart, ":")
+		if colonIdx > 0 {
+			domainPart = domainPart[:colonIdx]
+		}
+
+		// Check if domain matches target domain or is a subdomain of target
+		domainPartLower := strings.ToLower(domainPart)
+		targetLower := strings.ToLower(s.Domain)
+
+		if domainPartLower == targetLower || strings.HasSuffix(domainPartLower, "."+targetLower) {
 			paramURLs = append(paramURLs, url)
 		}
 	}
@@ -821,7 +854,7 @@ func (s *Scanner) filterJSURLs(urls []string) ([]string, error) {
 	return jsURLs, nil
 }
 
-// filterSensitiveURLs filters URLs with sensitive file extensions
+// filterSensitiveURLs filters URLs with sensitive file extensions belonging to target domain only
 func (s *Scanner) filterSensitiveURLs(urls []string) ([]string, error) {
 	sensitiveExts := []string{
 		".txt", ".json", ".vscode", ".env", ".zip", ".firebase",
@@ -834,13 +867,52 @@ func (s *Scanner) filterSensitiveURLs(urls []string) ([]string, error) {
 
 	for _, url := range urls {
 		url = strings.TrimSpace(url)
+		if url == "" {
+			continue
+		}
+
 		urlLower := strings.ToLower(url)
 
+		// Check if URL has sensitive extension
+		hasSensitiveExt := false
 		for _, ext := range sensitiveExts {
 			if strings.Contains(urlLower, ext) {
-				sensitiveURLs = append(sensitiveURLs, url)
+				hasSensitiveExt = true
 				break
 			}
+		}
+
+		if !hasSensitiveExt {
+			continue
+		}
+
+		// Extract domain from URL and check if it belongs to target
+		// Remove protocol
+		domainPart := url
+		if strings.HasPrefix(urlLower, "http://") {
+			domainPart = url[7:]
+		} else if strings.HasPrefix(urlLower, "https://") {
+			domainPart = url[8:]
+		}
+
+		// Extract hostname (everything before first /)
+		slashIdx := strings.Index(domainPart, "/")
+		if slashIdx > 0 {
+			domainPart = domainPart[:slashIdx]
+		}
+
+		// Remove port if present
+		colonIdx := strings.Index(domainPart, ":")
+		if colonIdx > 0 {
+			domainPart = domainPart[:colonIdx]
+		}
+
+		// Check if domain matches target domain or is a subdomain of target
+		domainPartLower := strings.ToLower(domainPart)
+		targetLower := strings.ToLower(s.Domain)
+
+		if domainPartLower == targetLower || strings.HasSuffix(domainPartLower, "."+targetLower) {
+			sensitiveURLs = append(sensitiveURLs, url)
 		}
 	}
 
