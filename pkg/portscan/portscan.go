@@ -2,11 +2,13 @@ package portscan
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/fatih/color"
 )
@@ -14,6 +16,8 @@ import (
 type Scanner struct {
 	OutputDir    string
 	TopPorts     int    // Number of top ports to scan (default: 5000)
+	HostTimeout  int    // Per-host timeout in minutes (default: 30)
+	Timeout      int    // Global scan timeout in minutes (default: 600 = 10 hours)
 	ExcludePorts string
 	Verbose      bool
 }
@@ -23,6 +27,8 @@ func NewScanner(outputDir string) *Scanner {
 	return &Scanner{
 		OutputDir:    outputDir,
 		TopPorts:     5000, // Default: scan top 5000 ports
+		HostTimeout:  30,   // Default: 30 minutes per host
+		Timeout:      600,  // Default: 10 hours global timeout
 		ExcludePorts: "80,443",
 		Verbose:      true,
 	}
@@ -161,15 +167,21 @@ func (s *Scanner) Run(liveSubsFile, shodanIPsFile string) error {
 	return nil
 }
 
-// runNmap executes nmap port scanner
+// runNmap executes nmap port scanner with global timeout
 func (s *Scanner) runNmap(targetsFile, outputFile string) error {
 	cyan := color.New(color.FgCyan)
+	yellow := color.New(color.FgYellow)
+
+	// Create context with global timeout (default: 10 hours)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.Timeout)*time.Minute)
+	defer cancel()
 
 	// Build nmap arguments
 	args := []string{
 		"-iL", targetsFile,
 		"--top-ports", fmt.Sprintf("%d", s.TopPorts),
 		"--exclude-ports", s.ExcludePorts,
+		"--host-timeout", fmt.Sprintf("%dm", s.HostTimeout), // Per-host timeout (skip slow hosts)
 		"-Pn",     // Skip host discovery (treat all hosts as online)
 		"-oG", outputFile,
 		"-T4",     // Aggressive timing
@@ -178,8 +190,10 @@ func (s *Scanner) runNmap(targetsFile, outputFile string) error {
 	}
 
 	cyan.Printf("→ Command: nmap %s\n", strings.Join(args, " "))
+	cyan.Printf("→ Per-host timeout: %d minutes (slow hosts will be skipped)\n", s.HostTimeout)
+	cyan.Printf("→ Global scan timeout: %d minutes (%d hours)\n", s.Timeout, s.Timeout/60)
 
-	cmd := exec.Command("nmap", args...)
+	cmd := exec.CommandContext(ctx, "nmap", args...)
 
 	// Stream output in real-time
 	stderr, err := cmd.StderrPipe()
@@ -225,6 +239,13 @@ func (s *Scanner) runNmap(targetsFile, outputFile string) error {
 	}()
 
 	if err := cmd.Wait(); err != nil {
+		// Check if timeout occurred
+		if ctx.Err() == context.DeadlineExceeded {
+			yellow.Printf("\n⚠ Port scan exceeded %d-hour timeout and was killed\n", s.Timeout/60)
+			yellow.Println("→ Partial results (if any) will be processed")
+			// Don't return error - process partial results
+			return nil
+		}
 		return fmt.Errorf("nmap scan failed: %v", err)
 	}
 

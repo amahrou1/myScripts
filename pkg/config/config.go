@@ -25,7 +25,9 @@ type Config struct {
 	DNSResolvers      string
 
 	// Settings
-	MaxVHostIPs int
+	MaxVHostIPs      int
+	NmapTopPorts     int // Number of top ports for nmap to scan
+	NmapHostTimeout  int // Per-host timeout in minutes for nmap
 
 	// Global Phase Timeouts (in minutes)
 	SubdomainEnumTimeout int
@@ -54,6 +56,8 @@ func Load() (*Config, error) {
 		VHostWordlist:     "/root/myLists/vhost-wordlist.txt",
 		DNSResolvers:      "/root/myLists/resolvers.txt",
 		MaxVHostIPs:       50,
+		NmapTopPorts:      5000, // Default: 5000 top ports
+		NmapHostTimeout:   30,   // Default: 30 minutes per host
 
 		// Global Phase Timeouts (default: 10 hours = 600 minutes)
 		SubdomainEnumTimeout: 600,
@@ -105,6 +109,8 @@ func Load() (*Config, error) {
 	cfg.VHostWordlist = getEnv("VHOST_WORDLIST", cfg.VHostWordlist)
 	cfg.DNSResolvers = getEnv("DNS_RESOLVERS", cfg.DNSResolvers)
 	cfg.MaxVHostIPs = getEnvInt("MAX_VHOST_IPS", cfg.MaxVHostIPs)
+	cfg.NmapTopPorts = getEnvInt("NMAP_TOP_PORTS", cfg.NmapTopPorts)
+	cfg.NmapHostTimeout = getEnvInt("NMAP_HOST_TIMEOUT", cfg.NmapHostTimeout)
 
 	// Global Phase Timeouts
 	cfg.SubdomainEnumTimeout = getEnvInt("SUBDOMAIN_ENUM_TIMEOUT", cfg.SubdomainEnumTimeout)
