@@ -292,6 +292,7 @@ func main() {
 	// Run Port Scanning if not skipped
 	if !*skipPortscan {
 		portscanner := portscan.NewScanner(outputDir)
+		portscanner.TopPorts = cfg.NmapTopPorts // Use configured port count
 		liveSubsFile := filepath.Join(outputDir, "live-subdomains.txt")
 		shodanIPsFile := filepath.Join(outputDir, "shodan-ips.txt")
 
